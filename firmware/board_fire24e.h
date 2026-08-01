@@ -2,7 +2,8 @@
 //
 // The socket-pin -> GPIO half of this file is taken from the One ROM project's
 // own board description (rust/config/json/fire-24-e.json) and is known good.
-// The chip-pin -> signal half is NOT yet verified; see the RE2 section below.
+// The chip-pin -> signal half comes from the KR1801RE2 datasheet, cross-checked
+// against the MS 0511 schematic; see the RE2 section below.
 
 #ifndef BOARD_FIRE24E_H
 #define BOARD_FIRE24E_H
@@ -29,6 +30,13 @@
 #define GPIO_X2              8    // jumper pad, not a socket pin
 #define GPIO_STATUS_LED     29
 #define GPIO_SEL_JUMPERS  { 25, 24, 26, 27 }
+
+// Image-select jumper 0, reused as a recovery jumper.  This firmware carries no
+// USB stack, so flashing it replaces One ROM's picoboot, and the board exposes
+// no BOOTSEL button -- without an escape hatch the only way back would be SWD
+// on the jumper 2/3 pads.  Fit this jumper and power on: the board goes to the
+// bootrom's USB mode instead of touching the bus at all.
+#define GPIO_RECOVERY_JUMPER  25
 
 // The PIO reads and writes GPIO 0..23 as one 24-bit field.  GPIO 8 and 9 fall
 // inside that field but are deliberately never muxed to the PIO, so PIO writes

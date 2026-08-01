@@ -378,9 +378,28 @@ $ PICO_SDK_PATH=/path/to/pico-sdk cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Rel
 $ cmake --build build
 ```
 
-`build/mpi_rom.uf2` is what you drag onto the board in BOOTSEL. The current
-build is 40 KB of code and 133 KB of BSS, nearly all of which is the eight
-window tables of ready-made drive patterns.
+Flash `build/mpi_rom.bin` with [One ROM Web](https://onerom.org/web) or the CLI's
+`--firmware` option — the same raw-binary route One ROM uses for its own
+`onerom-rp235x.bin`, loaded at 0x10000000. A `.uf2` is produced too, but the
+board has no BOOTSEL button, so the USB route is the practical one.
+
+### Getting back
+
+This firmware carries no USB stack, so flashing it replaces One ROM's picoboot
+along with everything else, and there is no BOOTSEL button to fall back on.
+Without an escape hatch, recovery would mean SWD on the jumper 2/3 pads.
+
+So **image-select jumper 0 doubles as a recovery jumper**. Fit it and power on:
+before a single socket pin is touched, the board hands straight back to the
+bootrom's USB mode, where One ROM Web can reflash it — including back to stock
+One ROM firmware. It is checked first thing in `main()` precisely so that it
+still works when the rest of this firmware does not.
+
+The check does not assume which rail the jumper ties to. A floating pin follows
+whichever internal pull is applied and a driven one does not, so comparing a
+read under pull-down with a read under pull-up detects a fitted jumper either
+way — worth the few microseconds when the cost of getting it backwards is a
+board that never runs, or one that cannot be recovered.
 
 `rom_images.c` is generated and gitignored — it holds actual ROM contents, which
 have no business in the repository.

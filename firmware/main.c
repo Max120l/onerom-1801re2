@@ -21,6 +21,7 @@
 #include <string.h>
 
 #include "pico/stdlib.h"
+#include "pico/bootrom.h"
 #include "pico/multicore.h"
 #include "hardware/pio.h"
 
@@ -163,7 +164,35 @@ static void __not_in_flash_func(serve_forever)(void) {
     }
 }
 
+// Is a jumper fitted, whichever rail it ties to?
+//
+// A floating pin follows whichever internal pull is applied; a pin something
+// else is driving does not.  Comparing the two reads therefore detects a fitted
+// jumper without needing to know its sense, which is worth having when the
+// consequence of getting it backwards is a board that either never runs or
+// cannot be recovered.
+static bool jumper_fitted(unsigned gpio) {
+    gpio_init(gpio);
+    gpio_set_dir(gpio, GPIO_IN);
+    gpio_pull_down(gpio);
+    busy_wait_us(50);
+    bool with_pulldown = gpio_get(gpio);
+    gpio_pull_up(gpio);
+    busy_wait_us(50);
+    bool with_pullup = gpio_get(gpio);
+    gpio_disable_pulls(gpio);
+    return with_pulldown == with_pullup;
+}
+
 int main(void) {
+    // Before anything else, and before a single socket pin is touched: if the
+    // recovery jumper is fitted, hand straight back to the bootrom.  This is
+    // the only way back to a flashable board, so it must work even when the
+    // rest of this firmware does not.
+    if (jumper_fitted(GPIO_RECOVERY_JUMPER)) {
+        reset_usb_boot(0, 0);
+    }
+
     build_pin_masks();
     mpi_decode_init(&g_dec, mpi_images, mpi_image_count,
                     g_window_store, MPI_MAX_WINDOWS);
