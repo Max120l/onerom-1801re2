@@ -206,6 +206,29 @@ static void test_byte_select_ignored(void) {
     }
 }
 
+// CS in a socket speaks only for that socket's own window.
+static void test_cs_scope(void) {
+    printf("CS gates only its own window\n");
+#if SOCKET_CS_CODE == 0xFF
+    for (unsigned i = 0; i < 8; i++) {
+        CHECK(!mpi_cs_gates(i), "window %u gated, but this socket grounds CS", i);
+    }
+#else
+    unsigned owned = mpi_window_index(SOCKET_CS_CODE);
+    unsigned gated = 0;
+    for (unsigned i = 0; i < 8; i++) {
+        if (mpi_cs_gates(i)) {
+            gated++;
+            CHECK(i == owned, "window %u gated by a CS that speaks for %u",
+                  i, owned);
+        }
+    }
+    CHECK(gated == 1, "%u windows gated by CS, expected exactly 1", gated);
+    printf("  socket CS is code %o, gating window index %u only\n",
+           SOCKET_CS_CODE, owned);
+#endif
+}
+
 int main(void) {
     build_fixtures();
     test_pin_map();
@@ -213,6 +236,7 @@ int main(void) {
     test_round_trip();
     test_silence_elsewhere();
     test_byte_select_ignored();
+    test_cs_scope();
 
     if (failures) {
         printf("\n%d failure(s)\n", failures);

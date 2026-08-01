@@ -143,15 +143,20 @@ static void __not_in_flash_func(serve_forever)(void) {
         uint32_t snap = pio_sm_get_blocking(g_pio, SM_CAPTURE);
         rearm_respond();
 
+        uint32_t addr = mpi_address(&g_dec, snap);
         uint32_t pattern;
-        if (!mpi_lookup(&g_dec, mpi_address(&g_dec, snap), &pattern)) {
+        if (!mpi_lookup(&g_dec, addr, &pattern)) {
             continue;       // not ours, or past the end of our window
         }
-        // Host logic can bank RAM in over a ROM window.  On the UKNC the read
-        // strobe would simply never arrive, but the DS4 socket also has a real
-        // chip select, so honour it.  Read live rather than from the snapshot:
-        // it is sampled later in the cycle, the safe side to be on.
-        if (!mpi_enabled()) {
+        // Most window banking arrives for free: the CGM withholds the read
+        // strobe, so we simply never hear a cycle we should not answer.  The
+        // exception is the window whose socket carries a real CS, where the
+        // strobe does arrive and CE alone says whether the on-board ROM or a
+        // cartridge owns the access.  Scope the check to that window only --
+        // applying it to all of them would let one deasserted CE silence
+        // windows it has no authority over.  Read live rather than from the
+        // snapshot: it is sampled later in the cycle, the safe side to be on.
+        if (mpi_cs_gates((addr >> 13) & 7) && !mpi_enabled()) {
             continue;
         }
         pio_sm_put(g_pio, SM_RESPOND, pattern);

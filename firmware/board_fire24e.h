@@ -97,6 +97,20 @@
 #define GPIO_nSEL              15
 #define GPIO_nSEL_ACTIVE_HIGH  0
 
+// Which chip's window this socket's CS gates, as a chip code -- or 0xFF for a
+// socket that straps CS to ground.
+//
+// This matters as soon as one board answers for more than one window.  CE0 in
+// the DS4 socket means "the 100000 window belongs to the on-board ROM rather
+// than to RAM or a cartridge"; it says nothing about the other three windows,
+// which have no CE of their own and are gated by EDIN alone.  Applying CS
+// globally would take all four windows down whenever the machine banked
+// something else into 100000.
+//
+//   DS4 (the 205, code 011) -> 03
+//   DS1, DS2, DS3           -> 0xFF
+#define SOCKET_CS_CODE         03
+
 // Socket pins 21 and 22 are not connected.  They are inside the 24-bit field
 // but contribute to no address bit, so they only need a pull to stop them
 // floating.

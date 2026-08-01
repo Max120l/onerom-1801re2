@@ -12,6 +12,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#include "board_fire24e.h"
 #include "rom_images.h"
 
 typedef struct {
@@ -34,6 +35,21 @@ typedef struct {
 // The chip code is the ones' complement of the top three logical address bits.
 static inline unsigned mpi_window_index(uint8_t chip_code) {
     return (~chip_code) & 7;
+}
+
+// Does this socket's CS have any say over this window?
+//
+// CS in a UKNC socket gates exactly the window whose chip lives there, and is
+// silent about every other. A board answering for several windows from one
+// socket must scope it accordingly, or one deasserted CE takes down windows it
+// has no authority over.
+static inline bool mpi_cs_gates(unsigned window_index) {
+#if SOCKET_CS_CODE == 0xFF
+    (void)window_index;
+    return false;
+#else
+    return window_index == mpi_window_index(SOCKET_CS_CODE);
+#endif
 }
 
 // GPIO pattern that presents one ROM word on the bus: data inverted and

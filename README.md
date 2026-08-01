@@ -131,10 +131,28 @@ the response machine is re-armed every cycle.
 `gen_rom_images.py` therefore serves only 3840 of the 4096 words for a code 0
 image by default, and `--full-window` overrides that if you ever need it.
 
-One upside: because there is no per-chip select in the ROM itself, a single
-board can answer for several windows at once, so all four UKNC chips are within
-reach of one Fire 24 — provided the real chips are out and the enable lines for
-the other three sockets are wired across.
+### Which socket to use
+
+Because the chip decodes its own window from nAD13–nAD15, one board in *any* of
+the four sockets can answer for all four. Every socket carries the same 1AD bus,
+the same K1SYNC, the same EDIN and the same RPLY. Only CS differs, and that
+decides how much care is needed:
+
+- **DS1, DS2 or DS3** — CS strapped to ground, so the board is permanently
+  selected and per-window banking comes entirely from EDIN. Nothing to configure
+  beyond `SOCKET_CS_CODE 0xFF`.
+- **DS4** — CS is CE0, which means "the 100000 window belongs to the on-board
+  ROM rather than to RAM or a cartridge". It says nothing about the other three
+  windows, which have no CE and are gated by EDIN alone. Set `SOCKET_CS_CODE`
+  to `03` so the check is scoped to that window. Applying CS globally would let
+  one deasserted CE silence three windows it has no authority over — the whole
+  system ROM disappearing whenever software banked something into 100000.
+
+**Whichever socket you use, every original it answers for must come out.** Two
+devices driving the same RPLY and the same AD lines is a bus fight, and the
+1801RE2 has no idea it has been replaced. If only DS4 is socketed and the other
+three are still soldered down, generate an image set containing *only* the 205 —
+that is a straight one-for-one replacement and needs no desoldering.
 
 ## Prior art
 
