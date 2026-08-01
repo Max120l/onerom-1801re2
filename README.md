@@ -385,15 +385,26 @@ board has no BOOTSEL button, so the USB route is the practical one.
 
 ### Getting back
 
-This firmware carries no USB stack, so flashing it replaces One ROM's picoboot
-along with everything else, and there is no BOOTSEL button to fall back on.
-Without an escape hatch, recovery would mean SWD on the jumper 2/3 pads.
+One ROM's USB is a TinyUSB device stack presenting its own vendor interface on
+VID 0x1209 / PID 0xF542 — "picobootx", an extended picoboot. The web flasher
+therefore talks to One ROM's *running firmware*, not to a bootloader. Flashing
+this firmware replaces that stack, so the board stops appearing in One ROM Web
+entirely.
 
-So **image-select jumper 0 doubles as a recovery jumper**. Fit it and power on:
+The board is not stranded by that. The RP2350's own bootrom is still underneath,
+and One ROM's install notes give the way in: **pull BOOT to GND on power-up** and
+the RP2350 mass-storage volume mounts, ready for a `.uf2` — or for
+[pico⚡flash](https://picoflash.org) or `picotool`, which talk to the bootrom
+rather than to One ROM. That route needs no working firmware at all, which makes
+it the real safety net: a corrupt image sends the bootrom to USB by itself.
+
+On top of that, **image-select jumper 0 doubles as a recovery jumper**, so you do
+not have to go looking for the BOOT pad. Fit it and power on:
 before a single socket pin is touched, the board hands straight back to the
-bootrom's USB mode, where One ROM Web can reflash it — including back to stock
-One ROM firmware. It is checked first thing in `main()` precisely so that it
-still works when the rest of this firmware does not.
+bootrom's USB mode. It is checked first thing in `main()` so that it still works
+when the rest of this firmware does not — though note it does depend on this
+firmware booting at all, which is why BOOT-to-GND remains the fallback beneath
+it.
 
 The check does not assume which rail the jumper ties to. A floating pin follows
 whichever internal pull is applied and a driven one does not, so comparing a
