@@ -78,6 +78,16 @@ static void start_pio(void) {
         gpio_pull_down(unused[i]);
     }
 
+#if GPIO_nSEL != 0xFF && !GPIO_nSEL_ACTIVE_HIGH
+    // Pull CS to its asserted level, so a socket that does not drive it behaves
+    // like the three UKNC sockets that strap it to ground.  This matters off
+    // the machine: a rig that leaves pin 23 open would otherwise get silence
+    // from us where a real chip could have answered by luck.  A weak internal
+    // pull loses to the CGM's driver, so it changes nothing in the one socket
+    // where CS is real.
+    gpio_pull_down(GPIO_nSEL);
+#endif
+
     // Everything starts released.  The bus must never see a driver until the
     // address has been decoded as ours.
     pio_sm_set_pindirs_with_mask(g_pio, SM_RESPOND, 0, g_dirs_ad_rply);

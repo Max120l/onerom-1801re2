@@ -261,6 +261,8 @@ cannot carry state across cycles.
 | `tools/re2_convert.py` | dump format conversion, tested |
 | `tools/gen_rom_images.py` | emits `firmware/rom_images.c` from dumps |
 | `tools/diagnose_dump.py` | tells a bad dump from a bad chip |
+| `tools/selftest.py` | the self-test pattern, shared by generator and checker |
+| `tools/check_selftest.py` | diagnoses a dump of the self-test build |
 
 ### Diagnosing a dump
 
@@ -397,6 +399,52 @@ the full window over the I/O page are each caught.
 
 What this does **not** test is the PIO — pin timing, bus turnaround, and the
 open-drain reply are only exercised by real hardware.
+
+## Testing against a ROM reader
+
+If you have a reader that can dump a real 1801RE2, you already have an MPI bus
+master, and it is a far better first test than the machine: it exercises address
+capture, window decode, the data drive and the bus turnaround, with nothing
+expensive attached and no video timing to corrupt.
+
+Flash the self-test build rather than a real ROM image:
+
+```console
+$ ./tools/gen_rom_images.py --selftest -o firmware/rom_images.c
+$ cmake --build firmware/build
+```
+
+That fills all eight windows with a pattern whose every word encodes both its
+own index and the window it belongs to. Dump it back through the reader, then:
+
+```console
+$ ./tools/check_selftest.py dumped.bin --window 3
+```
+
+The point is that the three failures which look identical in a dump of real code
+are separable here:
+
+| symptom | reported as |
+|---|---|
+| board never drove the bus | every bit stuck at one level |
+| wrong window answered | a clean pattern, but from another window |
+| a data line not driving | that bit position never changes |
+| an address line swapped or stuck | valid words at permuted indices, and the XOR names the bits |
+
+A stuck data line below bit 12 also perturbs the index a word claims, so the
+checker masks those bits out before blaming the address lines — otherwise one
+bad data line reports as an address fault too.
+
+Two things to get right on the bench. Power the board and the reader from the
+same supply so they rise together: that is the case One ROM validated for the
+brief window where 5 V is present before the regulator has brought VDD up.
+And make sure the reader either grounds pin 23 or leaves it open — the firmware
+pulls CS down internally so an open pin reads as selected, matching the three
+UKNC sockets that strap it to ground.
+
+If the reader does not wait for RPLY but latches after a fixed delay, a passing
+dump proves the data path but says nothing about the reply. Worth knowing which
+you have before reading too much into a green result.
 
 ## Bring-up
 
