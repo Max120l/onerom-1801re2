@@ -156,11 +156,10 @@ static void start_pio(void) {
 // Serving
 // ---------------------------------------------------------------------------
 
-// Is this chip currently selected by the host?  A mask ROM has no such logic
-// of its own, so on any machine that can bank the window away -- the UKNC does,
-// per window, via port 177054 -- the socket must be carrying an enable from
-// external decode logic.  Set GPIO_nSEL to 0xFF only if you have confirmed
-// there is no such signal.
+// Is this chip currently selected?  On the UKNC only the DS4 socket -- the
+// 205, covering the switchable 100000 window -- has this wired to anything; the
+// CGM drives it from CE0.  DS1 to DS3 have pin 23 strapped to ground, so this
+// reads permanently selected there, which is correct.
 static inline bool mpi_enabled(void) {
 #if GPIO_nSEL == 0xFF
     return true;
@@ -171,27 +170,31 @@ static inline bool mpi_enabled(void) {
 #endif
 }
 
-// A cycle we answered but that turned out not to be a read -- a write to our
-// window, or a host that abandoned the transfer -- leaves the response machine
-// holding a pattern it would wrongly apply to the next read.  Once nSYNC
-// releases without nDIN having fired, drop it.
-static void discard_stale_response(void) {
-    if (pio_sm_is_tx_fifo_empty(g_pio, SM_RESPOND)) {
-        return;
-    }
-    if (gpio_get(GPIO_nSYNC)) {          // high == cycle over
-        pio_sm_clear_fifos(g_pio, SM_RESPOND);
-        pio_sm_restart(g_pio, SM_RESPOND);
-        pio_sm_exec(g_pio, SM_RESPOND, pio_encode_jmp(g_off_respond));
-    }
+// Put the response machine back to a known idle before preparing a cycle.
+//
+// This is load-bearing, not tidiness.  We latch on the address strobe, which is
+// asserted for every cycle on the bus, but the read strobe only arrives for a
+// read the host has decided belongs to us -- on the UKNC it is EDIN, which the
+// CGM withholds when the window is banked to RAM.  So a prepared cycle
+// routinely ends without ever being served: writes, cycles for other devices,
+// banked-out windows.
+//
+// Once the machine has executed its PULL, the pattern is in the OSR and the TX
+// FIFO reads empty, so neither a FIFO check nor watching the address strobe can
+// tell that it is sitting on a stale value.  It would then apply that value to
+// whatever read came next -- wrong data, driven confidently.  Re-arming
+// unconditionally costs a handful of register writes inside the strobe-to-
+// strobe gap and makes the machine stateless across cycles.
+static void __not_in_flash_func(rearm_respond)(void) {
+    pio_sm_clear_fifos(g_pio, SM_RESPOND);
+    pio_sm_restart(g_pio, SM_RESPOND);
+    pio_sm_exec(g_pio, SM_RESPOND, pio_encode_jmp(g_off_respond));
 }
 
 static void __not_in_flash_func(serve_forever)(void) {
     while (true) {
-        while (pio_sm_is_rx_fifo_empty(g_pio, SM_CAPTURE)) {
-            discard_stale_response();
-        }
-        uint32_t snap = pio_sm_get(g_pio, SM_CAPTURE);
+        uint32_t snap = pio_sm_get_blocking(g_pio, SM_CAPTURE);
+        rearm_respond();
 
         uint32_t addr = g_gather[0][snap & 0xFF]
                       | g_gather[1][(snap >> 8) & 0xFF]

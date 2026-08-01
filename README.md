@@ -110,9 +110,21 @@ between working firmware and a board that fights the machine for its own bus.
 the PP sees ROM or RAM: bit 5 for 120000, bit 6 for 140000, bit 7 for 160000,
 and bits 0–4 for the 100000 window, which can also be switched to one of six
 banks of external cartridge ROM. A mask ROM has no logic to do that itself, so
-the socket has to be carrying an enable from external decode — and it is, on
-pin 23, CS. **Ignore it and you will drive the bus while the PP's RAM is also
-driving it.** The firmware reads it live at decode time.
+something external must gate it. Sheet 1 of the schematic shows how, and it is
+not what you would guess:
+
+- **Pin 1 is fed by EDIN, not by the raw K1DIN net.** EDIN comes off the output
+  side of the CGM (D10, pin 53) — a read strobe already qualified by the
+  banking state. A window switched to RAM simply never strobes its ROM. This is
+  the real per-window gate, and it means the gating arrives for free: the
+  firmware waits on the read strobe and never hears one it should not answer.
+- **CS on pin 23 is strapped to ground on DS1, DS2 and DS3** — permanently
+  selected. Only DS4, the 205 covering the switchable 100000 window, has it
+  driven, from the CGM's CE0. So CS arbitrates one window, not four. It is also
+  what settles the polarity question: grounded means selected, so active low.
+
+The consequence for the firmware is in [Serving](#design), and it is the reason
+the response machine is re-armed every cycle.
 
 **The code 0 chip overlaps the I/O page.** Its window is 160000–177777 but only
 160000–176777 is ROM; the top 512 bytes belong to the machine's registers.
@@ -221,11 +233,20 @@ direction returns it to the bus pull-up. The line is never driven high.
 Roughly six PIO cycles from the nDIN edge to data and nRPLY, about 40 ns at
 150 MHz — faster than the chip being emulated.
 
-One correctness wrinkle is handled explicitly. A cycle we answered that turns
-out not to be a read — a write into our window, or an abandoned transfer —
-leaves the response machine holding a pattern it would wrongly apply to the next
-read. `discard_stale_response()` drops it once nSYNC releases without nDIN
-having fired.
+One correctness wrinkle drives a design choice worth spelling out. We latch on
+the address strobe, which is asserted for **every** cycle on the bus, but the
+read strobe only arrives for a read the host has decided belongs to us — on the
+UKNC, EDIN, which the CGM withholds when the window is banked to RAM. So a
+prepared cycle routinely ends without ever being served: writes, cycles for
+other devices, banked-out windows.
+
+Once the response machine has executed its `pull`, the pattern is in the OSR and
+the TX FIFO reads empty, so neither a FIFO check nor watching the address strobe
+can tell it is sitting on a stale value. It would then apply that value to
+whatever read came next — wrong data, driven confidently. So `rearm_respond()`
+puts the machine back to idle unconditionally at the start of every cycle: a few
+register writes inside the strobe-to-strobe gap, in exchange for a machine that
+cannot carry state across cycles.
 
 ### Files
 
@@ -288,15 +309,10 @@ const mpi_image_t mpi_images[] = {
 
 Power is settled: the 1801RE2 follows JEDEC, so pin 24 is Ucc and pin 12 GND,
 exactly what the Fire 24 hard-wires to its regulator and ground plane. The
-board drops in unmodified. Two smaller things remain open.
-
-**CS polarity.** The datasheet names the pin CS without settling whether it is
-asserted low or high. `GPIO_nSEL_ACTIVE_HIGH` is set to 0, i.e. active low, in
-keeping with every other signal on this part — but this is the one guess left in
-the pin configuration, and getting it inverted means driving the bus at exactly
-the moments the machine has banked RAM in over the window. Confirm it on a scope
-before trusting it. A UKNC schematic (RetroPC.org hosts a corrected set) would
-settle it, and would also show how port 177054 reaches each socket.
+board drops in unmodified. CS polarity is settled too: the schematic straps it
+to ground on three of the four sockets, so grounded means selected, so active
+low. The whole pin configuration is now read off documentation rather than
+guessed. What is left is behavioural, not electrical.
 
 **Write behaviour.** Worth answering from the datasheet rather than guessing:
 **does a real 1801RE2 assert nRPLY on a write into its window?** If it does not,
@@ -323,12 +339,12 @@ Do not go straight into a host.
    driven push-pull or open-drain. This firmware drives them push-pull during
    its response window; if the host's pull-ups are weak and something else is
    contending, that assumption needs revisiting.
-4. On the same capture, settle CS polarity: watch pin 23 across a port 177054
-   write that banks RAM into that window, and confirm which level means
-   "someone else owns this address range". Then check the firmware goes quiet
-   when it should.
+4. On the same capture, watch EDIN across a port 177054 write that banks RAM
+   into that window, and confirm the strobe stops arriving. That is the gate
+   the whole design leans on, so it is worth seeing rather than assuming.
 5. Only then, one image, one window, in the host. Start with 206 or 207 — the
-   plain system ROM windows, no banking games and no I/O page adjacency.
+   plain system ROM windows, no banking games, no I/O page adjacency, and CS
+   grounded so there is one less variable.
 
 On levels: the RP2350 GPIOs are directly connected to the socket, with no
 buffers, and are 5 V tolerant to 5.5 V once VDD is up. One ROM uses 8 mA drive
@@ -342,6 +358,9 @@ project's `docs/VOLTAGE-LEVELS.md`.
   (`rust/config/json/fire-24-e.json`), serving algorithms
   (`docs/firmware-rewrite.md`), plugin API (`firmware/ora/api.h`), levels
   (`docs/VOLTAGE-LEVELS.md`)
+- KR1801RE2 datasheet, table 11.26 and figure 11.30 — the pinout
+- Elektronika MS 0511 schematic, revision 5 (sheet 1) — DS1–DS4 wiring, the CGM
+  at D10, and the EDIN / CE0–CE3 gating
 - [1801BM1/k1801](https://github.com/1801BM1/k1801) — 1801RE2 description, code
   table, dump archive, and the `rev16` conversion utility
 - [vldmrrr/BK-ROM-Disk](https://github.com/vldmrrr/BK-ROM-Disk) — GAL equations

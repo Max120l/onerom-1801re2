@@ -61,7 +61,17 @@
 // misprint; figure 11.30 draws it on the output side.  It is driven here, open
 // drain: see GPIO_nRPLY below and the direction masks in main.c.
 //
-// Only CS polarity is still unconfirmed -- see GPIO_nSEL_ACTIVE_HIGH below.
+// Cross-checked against the MS 0511 schematic (sheet 1, DS1-DS4), which wires
+// all four ROMs exactly as above and settles two things:
+//
+//   CS is active low.  DS1, DS2 and DS3 have pin 23 strapped straight to
+//   ground, i.e. permanently selected.  Only DS4 -- the 205, covering the
+//   switchable 100000 window -- has it driven, from the CGM's CE0.
+//
+//   Pin 1 is fed by EDIN, not by the raw K1DIN net.  EDIN comes off the CGM's
+//   output side, a read strobe already qualified by the port 177054 banking,
+//   so a window switched to RAM simply never strobes its ROM.  That is the
+//   real per-window gate; CS only arbitrates the one switchable window.
 
 // GPIO number carrying each inverted address/data line, nAD0 first.  Order is
 // scrambled relative to the socket, which costs nothing: the address is
@@ -81,10 +91,9 @@
 #define GPIO_nDIN   16    // RD,  socket pin 1
 #define GPIO_nRPLY  17    // AN,  socket pin 2
 
-// CS, socket pin 23.  This is the pin the UKNC's port 177054 decode drives to
-// bank a window out in favour of RAM.  Assumed active low, in keeping with
-// every other signal on this part -- confirm on a scope before trusting it,
-// because inverted sense means driving the bus exactly when we should not.
+// CS, socket pin 23.  Active low, per the schematic strapping it to ground on
+// three of the four sockets.  Only meaningful in the DS4 socket, where the CGM
+// drives it from CE0; elsewhere it reads permanently selected, which is right.
 #define GPIO_nSEL              15
 #define GPIO_nSEL_ACTIVE_HIGH  0
 
