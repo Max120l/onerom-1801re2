@@ -21,6 +21,7 @@
 #include <string.h>
 
 #include "pico/stdlib.h"
+#include "hardware/clocks.h"
 #include "pico/bootrom.h"
 #include "pico/multicore.h"
 #include "hardware/pio.h"
@@ -30,11 +31,23 @@
 #include "mpi_rom.pio.h"
 #include "rom_images.h"
 
+// The machine waits for our reply, so being slow costs wait states rather than
+// data -- but only up to the point where the read strobe has come and gone
+// before we answer, and then the cycle gets no reply at all.  The whole CPU
+// path between the address strobe and the pattern reaching the response FIFO
+// therefore wants to be short.  200 MHz is a modest step up from the 150 MHz
+// default and buys a third off it at stock voltage.
+#define MPI_SYS_CLK_KHZ  200000
+
 #define SM_CAPTURE  0
 #define SM_RESPOND  1
 
 static PIO   g_pio = pio0;
 static uint  g_off_capture, g_off_respond;
+
+// Bumped on every cycle we answer.  Core 1 only writes, core 0 only reads, and
+// a torn read costs nothing but a slightly wrong blink, so no synchronisation.
+static volatile uint32_t g_served;
 
 static mpi_decode_t g_dec;
 static uint32_t g_window_store[MPI_MAX_WINDOWS][4096];
@@ -161,6 +174,7 @@ static void __not_in_flash_func(serve_forever)(void) {
             continue;
         }
         pio_sm_put(g_pio, SM_RESPOND, pattern);
+        g_served++;
     }
 }
 
@@ -193,6 +207,8 @@ int main(void) {
         reset_usb_boot(0, 0);
     }
 
+    set_sys_clock_khz(MPI_SYS_CLK_KHZ, true);
+
     build_pin_masks();
     mpi_decode_init(&g_dec, mpi_images, mpi_image_count,
                     g_window_store, MPI_MAX_WINDOWS);
@@ -200,10 +216,21 @@ int main(void) {
 
     gpio_init(GPIO_STATUS_LED);
     gpio_set_dir(GPIO_STATUS_LED, GPIO_OUT);
-    gpio_put(GPIO_STATUS_LED, 1);
 
     multicore_launch_core1(serve_forever);
+
+    // Core 0 turns the served-cycle count into something visible.  Installed in
+    // a machine that will not boot, the useful question is whether the board is
+    // being asked for anything at all, and a steady light cannot answer it:
+    //
+    //   dark          nothing is reaching us -- no address strobe, or no power
+    //   fast flicker  serving normally
+    //   slow blink    a handful of cycles then nothing, i.e. the machine gave up
+    uint32_t last = 0;
     while (true) {
-        tight_loop_contents();           // core 0 is free for USB, config, etc.
+        uint32_t now = g_served;
+        gpio_put(GPIO_STATUS_LED, now != last);
+        last = now;
+        sleep_ms(50);
     }
 }

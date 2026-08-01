@@ -6,8 +6,9 @@ Q-bus, where address and data share one set of sixteen lines.
 
 Target machine: **Elektronika MS 0511 (UKNC)**, which uses four of them.
 
-**Status: builds, and the decode path is tested on the host. The PIO — pin
-timing, bus turnaround, the open-drain reply — has never run on hardware.**
+**Status: verified on real hardware through a 1801RE2 ROM reader — all eight
+windows answered with correct data. Not yet run in a machine, so the reply
+(nRPLY) and the response latency against a live bus remain untested.**
 The image conversion tooling is finished and tested. Read [Before you plug anything in](#before-you-plug-anything-in)
 first, and [Prior art](#prior-art) before deciding this is the right project at
 all — someone has already built a purpose-made board for this job.
@@ -474,8 +475,25 @@ The tests have been mutation-checked. Dropping the complement in
 `mpi_window_index()`, forgetting that data is inverted on the wire, and serving
 the full window over the I/O page are each caught.
 
-What this does **not** test is the PIO — pin timing, bus turnaround, and the
-open-drain reply are only exercised by real hardware.
+What this does **not** test is the PIO. That needs hardware — see below.
+
+### Result on hardware
+
+Read back through an Arduino-based 1801RE2 reader, all eight windows answered
+with the right data in the right places: address capture, window decode, data
+drive and bus turnaround all work. The code 0 window returned exactly 3840
+words, so the I/O page truncation holds too.
+
+About 3% of reads came back displaced by one bit — the correct word, correctly
+selected, misaligned. A parallel bus cannot displace bits, so that belongs to
+whatever samples the lines, not to the board; `check_selftest.py` now names it
+rather than blaming an address line.
+
+Still untested: **nRPLY**, since a reader that latches on a fixed delay never
+looks at it, and **latency against a live bus**. A machine waits for the reply,
+so being slow costs wait states rather than data — until the read strobe has
+come and gone before we answer, at which point the cycle gets no reply at all.
+That is the one failure mode a bench reader cannot reproduce.
 
 ## Testing against a ROM reader
 
