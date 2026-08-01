@@ -391,12 +391,30 @@ therefore talks to One ROM's *running firmware*, not to a bootloader. Flashing
 this firmware replaces that stack, so the board stops appearing in One ROM Web
 entirely.
 
-The board is not stranded by that. The RP2350's own bootrom is still underneath,
-and One ROM's install notes give the way in: **pull BOOT to GND on power-up** and
-the RP2350 mass-storage volume mounts, ready for a `.uf2` — or for
-[pico⚡flash](https://picoflash.org) or `picotool`, which talk to the bootrom
-rather than to One ROM. That route needs no working firmware at all, which makes
-it the real safety net: a corrupt image sends the bootrom to USB by itself.
+One ROM Web goes further and validates what you hand it — a binary that is not
+recognisable One ROM firmware is refused outright, so it will not flash this
+project at all. Two routes do work:
+
+- **[pico⚡flash](https://picoflash.org)**, by the same author. It speaks
+  picoboot rather than checking for One ROM metadata, and reaches both One ROM's
+  running firmware and the bare bootrom.
+- **The bootrom's mass-storage volume**, which takes a `.uf2` by drag and drop.
+
+For the second, header **J2** on the Fire 24 rev E carries everything needed:
+
+| J2 pin | | J2 pin | |
+|---|---|---|---|
+| 1 | SEL_A | 2 | GND |
+| 3 | SEL_B | 4 | GND |
+| 5 | **BOOT** | 6 | SWCLK |
+| 7 | **RUN** | 8 | SWDIO |
+
+Short **pin 5 to pin 4** and power up, and the volume mounts. BOOT reaches
+QSPI_SS through a 1K against its 10K pull-up, so grounding it wins. If the board
+is already powered, briefly ground **pin 7** (RUN) instead of power-cycling.
+
+That route needs no working firmware at all, which makes it the real safety net:
+a corrupt image sends the bootrom to USB by itself.
 
 On top of that, **image-select jumper 0 doubles as a recovery jumper**, so you do
 not have to go looking for the BOOT pad. Fit it and power on:
