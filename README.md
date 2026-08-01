@@ -6,9 +6,8 @@ Q-bus, where address and data share one set of sixteen lines.
 
 Target machine: **Elektronika MS 0511 (UKNC)**, which uses four of them.
 
-**Status: verified on real hardware through a 1801RE2 ROM reader — all eight
-windows answered with correct data. Not yet run in a machine, so the reply
-(nRPLY) and the response latency against a live bus remain untested.**
+**Status: working. An Elektronika MS 0511 boots with all four of its 1801RE2
+mask ROMs replaced by a single One ROM Fire 24 in the DS4 socket.**
 The image conversion tooling is finished and tested. Read [Before you plug anything in](#before-you-plug-anything-in)
 first, and [Prior art](#prior-art) before deciding this is the right project at
 all — someone has already built a purpose-made board for this job.
@@ -489,11 +488,24 @@ selected, misaligned. A parallel bus cannot displace bits, so that belongs to
 whatever samples the lines, not to the board; `check_selftest.py` now names it
 rather than blaming an address line.
 
-Still untested: **nRPLY**, since a reader that latches on a fixed delay never
-looks at it, and **latency against a live bus**. A machine waits for the reply,
-so being slow costs wait states rather than data — until the read strobe has
-come and gone before we answer, at which point the cycle gets no reply at all.
-That is the one failure mode a bench reader cannot reproduce.
+### Result in the machine
+
+An MS 0511 with all four mask ROMs removed and one board in the DS4 socket
+initialises its video RAM and reaches a cursor. That settles the two things a
+bench reader cannot exercise: **nRPLY**, which a reader latching on a fixed
+delay never looks at, and **latency against a live bus**, where being slow costs
+wait states right up until the read strobe has come and gone before the reply is
+ready, and then the cycle gets nothing at all.
+
+What is still unexercised is **CE0**. It only speaks for the 100000 window and
+only matters when software banks that window to RAM or to a cartridge, so
+ordinary booting never touches it. The board treats an open CS as selected, so a
+surprise there fails toward answering rather than falling silent.
+
+The status LED reports the remaining unknown directly: lit means answering, dark
+means nothing is asking, and blinking means replies are being prepared and not
+taken — some of which is normal, but a reply assembled too late to be sampled
+lands in the same count.
 
 ## Testing against a ROM reader
 
