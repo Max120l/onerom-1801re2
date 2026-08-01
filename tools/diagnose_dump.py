@@ -54,9 +54,10 @@ def address_echo(w):
     the "data" read back is the address bit that line just carried.
 
     A mask ROM cannot do this: its bits are metal and have no idea what address
-    preceded them. A strong correlation here is proof the line is open, not that
-    the chip is bad. Orientation-independent, since inverting word addresses
-    only flips the sign of the correlation.
+    preceded them. So a strong correlation proves nobody drove the line during
+    the data phase -- an open line, a dead output driver, or a reader that never
+    released it. Orientation-independent, since inverting word addresses only
+    flips the sign of the correlation.
     """
     n = len(w)
     out = []
@@ -109,8 +110,9 @@ def verdict(w, constant, echoes):
             print(f"  ** bit {b} tracks address bit {ab} ({score * 100:.0f}%).")
         print("  Those lines are carrying back the address the reader drove,")
         print("  which a mask ROM cannot do -- its bits are metal and know")
-        print("  nothing about the preceding address. They are open circuit")
-        print("  somewhere between the chip and the reader.")
+        print("  nothing about the preceding address. Nobody is driving them")
+        print("  during the data phase; with a reference, the bond wire check")
+        print("  below narrows down who.")
         if not constant:
             return
         print()
@@ -183,11 +185,15 @@ def bond_wire_check(sus, ref, bad_bits):
     """Could the chip have received the address on the lines that read wrong?
 
     The AD lines carry both directions through one bond wire each, so a wire
-    open inside the package takes the input path down with the output path. If
-    the chip had been blind to an address bit, every access would have returned
-    its partner word and the *good* data bits would disagree with the reference
-    all over the place. They do not, then the wire is intact and only the return
-    path is at fault -- which is outside the package.
+    open inside the package takes the input path down with the output path, as
+    does a bad socket contact. If the chip had been blind to an address bit,
+    every access would have returned its partner word and the *good* data bits
+    would disagree with the reference all over the place.
+
+    So this rules out a broken bond and a bad contact. It does NOT rule out a
+    dead output driver on the die, which fails one direction only and looks
+    identical from the reader. Separating those two needs a dump with the
+    socket empty.
 
     Says nothing about nAD0: that is the byte select and a ROM never reads it.
     """
