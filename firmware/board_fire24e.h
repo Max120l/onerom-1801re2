@@ -56,9 +56,10 @@
 //    8   AD8             16   AD0             24   Ucc
 //
 // All signals are active low / inverted, which is why the k1801 RTL names them
-// nAD, nSYNC, nDIN, nRPLY.  The datasheet lists AN as an input, which has to be
-// a misprint: a reply is something the ROM asserts, and figure 11.30 draws it
-// on the output side.  It is driven here, open-drain.
+// nAD, nSYNC, nDIN, nRPLY.  AN on pin 2 is the reply -- nRPLY, asserted by the
+// ROM to complete a transfer.  Table 11.26 lists it as an input, which is a
+// misprint; figure 11.30 draws it on the output side.  It is driven here, open
+// drain: see GPIO_nRPLY below and the direction masks in main.c.
 //
 // Only CS polarity is still unconfirmed -- see GPIO_nSEL_ACTIVE_HIGH below.
 

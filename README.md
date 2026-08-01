@@ -80,9 +80,11 @@ nDIN and nRPLY. Two things are worth pulling out:
 **There is a chip select on pin 23**, which is how the UKNC banks a window out —
 see below. The design had assumed such a pin had to exist; it does.
 
-**The datasheet lists AN as an input.** That has to be a misprint: a reply is
-something the ROM asserts, and figure 11.30 draws it on the output side. It is
-driven here, open-drain.
+**AN on pin 2 is the reply** — nRPLY, the signal the ROM asserts to complete a
+transfer. Table 11.26's "вход" against it is a misprint; figure 11.30 draws it
+on the output side. It is driven here, open-drain: the output value is always
+low and only the direction is toggled, so the line is either pulled down or
+released to the bus pull-up, never driven high.
 
 ## What the UKNC does with them
 
