@@ -13,6 +13,7 @@ pico_sdk_init()
 
 add_executable(mpi_rom
     main.c
+    decode.c
     rom_images.c        # generated: tools/gen_rom_images.py
 )
 

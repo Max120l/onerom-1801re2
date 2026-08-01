@@ -6,9 +6,9 @@ Q-bus, where address and data share one set of sixteen lines.
 
 Target machine: **Elektronika MS 0511 (UKNC)**, which uses four of them.
 
-**Status: design plus a skeleton. The pinout is in and the mapping checks out,
-but the bus protocol code has never run on hardware.** The image conversion
-tooling is finished and tested. Read [Before you plug anything in](#before-you-plug-anything-in)
+**Status: builds, and the decode path is tested on the host. The PIO — pin
+timing, bus turnaround, the open-drain reply — has never run on hardware.**
+The image conversion tooling is finished and tested. Read [Before you plug anything in](#before-you-plug-anything-in)
 first, and [Prior art](#prior-art) before deciding this is the right project at
 all — someone has already built a purpose-made board for this job.
 
@@ -253,7 +253,9 @@ cannot carry state across cycles.
 | File | |
 |------|--|
 | `firmware/mpi_rom.pio` | the two state machines |
-| `firmware/main.c` | table construction and the core 1 serving loop |
+| `firmware/main.c` | hardware setup and the core 1 serving loop |
+| `firmware/decode.c` | the per-cycle arithmetic, free of SDK dependencies |
+| `test/test_decode.c` | host test of that arithmetic |
 | `firmware/board_fire24e.h` | socket-to-GPIO map and chip pinout |
 | `firmware/rom_images.h` | image table interface |
 | `tools/re2_convert.py` | dump format conversion, tested |
@@ -341,6 +343,60 @@ writes to ROM produce a bus timeout trap, and software may depend on that. The
 BK-ROM-Disk GAL (`RPLY = CHIPSEL & (DIN # !_DOUT)`) does reply to writes, but
 that is a RAM-disk controller, not a ROM. If the answer is "no", nothing needs
 adding: this firmware only ever responds to nDIN.
+
+## Building
+
+Needs `arm-none-eabi-gcc`, CMake, Ninja and the Pico SDK. The board carries an
+RP2354A — an RP2350A with 2 MB of stacked flash — so it builds as a plain
+rp2350 target.
+
+```console
+$ ./tools/gen_rom_images.py -o firmware/rom_images.c \
+      205_mc0511.rom 206_mc0511.rom 207_mc0511.rom 208_mc0511.rom
+$ cd firmware
+$ PICO_SDK_PATH=/path/to/pico-sdk cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release .
+$ cmake --build build
+```
+
+`build/mpi_rom.uf2` is what you drag onto the board in BOOTSEL. The current
+build is 40 KB of code and 133 KB of BSS, nearly all of which is the eight
+window tables of ready-made drive patterns.
+
+`rom_images.c` is generated and gitignored — it holds actual ROM contents, which
+have no business in the repository.
+
+## Testing
+
+`decode.c` holds the whole per-cycle arithmetic and deliberately has no SDK
+dependency, so the interesting half of the firmware can be tested with nothing
+but a host compiler:
+
+```console
+$ make -C test check
+pin map
+window index
+round trip over all four windows
+  16128 addresses served correctly
+silence outside the served windows
+  16640 addresses correctly left alone
+AD0 does not change the word selected
+
+all checks passed
+```
+
+The round-trip test presents every address in every window the way the host
+would — inverted and scattered across the real pin map from `board_fire24e.h` —
+runs it through the same gather tables the firmware builds, and reads the answer
+back off the resulting drive pattern with an independently written model of the
+bus. It also checks the board stays off the bus everywhere it should: the four
+windows it does not serve, and the I/O page the code 0 chip must stop short of.
+
+The tests have been mutation-checked. Dropping the complement in
+`mpi_window_index()`, forgetting that data is inverted on the wire, and serving
+the full window over the I/O page are each caught.
+
+What this does **not** test is the PIO — pin timing, bus turnaround, and the
+open-drain reply are only exercised by real hardware.
 
 ## Bring-up
 

@@ -2,3 +2,4 @@ __pycache__/
 *.pyc
 firmware/rom_images.c
 firmware/build/
+test/build/

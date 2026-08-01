@@ -25,6 +25,7 @@
 #include "hardware/pio.h"
 
 #include "board_fire24e.h"
+#include "decode.h"
 #include "mpi_rom.pio.h"
 #include "rom_images.h"
 
@@ -34,32 +35,11 @@
 static PIO   g_pio = pio0;
 static uint  g_off_capture, g_off_respond;
 
-static const uint8_t g_ad_gpio[16] = AD_GPIO;
+static mpi_decode_t g_dec;
+static uint32_t g_window_store[MPI_MAX_WINDOWS][4096];
 
 // Direction masks over the 24-bit GPIO field.
 static uint32_t g_dirs_ad, g_dirs_ad_rply;
-
-// Snapshot byte -> partial logical address.  Three tables, one per byte of the
-// 24-bit GPIO snapshot, each contributing the AD bits that live in that byte.
-// Pin inversion is baked in: the tables yield the CPU-level address directly.
-static uint16_t g_gather[3][256];
-
-// One 4096-entry table per 8 KB window.  Each entry is the finished 24-bit GPIO
-// pattern: data inverted and scattered onto the AD pins, nRPLY bit low.
-// Nothing is computed per cycle.
-//
-// Indexed by the top three bits of the *logical* address, which is not the chip
-// code.  The code is what the chip's decoder sees on the inverted nAD13..nAD15
-// lines, so it is the ones' complement: code 000 answers for 160000-177777,
-// whose top bits are 111.  window_index() is the only place that conversion
-// happens.
-static const uint32_t *g_window[8];
-static uint16_t        g_window_words[8];   // 0 == window not served
-
-static inline unsigned window_index(uint8_t chip_code) {
-    return (~chip_code) & 7;
-}
-static uint32_t g_window_store[MPI_MAX_WINDOWS][4096];
 
 // ---------------------------------------------------------------------------
 // Setup
@@ -73,54 +53,11 @@ static void build_pin_masks(void) {
     static_assert(GPIO_nDIN  == PIN_nDIN,  "nDIN pin mismatch");
     static_assert(GPIO_nRPLY == PIN_nRPLY, "nRPLY pin mismatch");
 
-    g_dirs_ad = 0;
-    for (int i = 0; i < 16; i++) {
-        g_dirs_ad |= 1u << g_ad_gpio[i];
-    }
-    g_dirs_ad_rply = g_dirs_ad | (1u << GPIO_nRPLY);
+    mpi_direction_masks(&g_dirs_ad, &g_dirs_ad_rply);
 
     // GPIO 8 and 9 are the X jumper pads.  A fitted jumper ties them to a rail,
     // so they must never become outputs.
     hard_assert((g_dirs_ad_rply & ((1u << GPIO_X1) | (1u << GPIO_X2))) == 0);
-}
-
-static void build_gather_tables(void) {
-    memset(g_gather, 0, sizeof(g_gather));
-    for (int bit = 0; bit < 16; bit++) {
-        uint32_t gpio = g_ad_gpio[bit];
-        uint32_t byte = gpio / 8, pos = gpio % 8;
-        for (int v = 0; v < 256; v++) {
-            // Pins are inverted: a low pin is a logical 1.
-            if (!((v >> pos) & 1)) {
-                g_gather[byte][v] |= 1u << bit;
-            }
-        }
-    }
-}
-
-// Turn a 16-bit ROM word into the GPIO pattern that presents it on the bus.
-static uint32_t drive_pattern(uint16_t word) {
-    uint32_t pattern = 0;
-    for (int bit = 0; bit < 16; bit++) {
-        if (!((word >> bit) & 1)) {     // inverted on the wire
-            pattern |= 1u << g_ad_gpio[bit];
-        }
-    }
-    return pattern;                      // nRPLY bit stays 0 == asserted low
-}
-
-static void build_windows(void) {
-    memset(g_window, 0, sizeof(g_window));
-    memset(g_window_words, 0, sizeof(g_window_words));
-    for (unsigned i = 0; i < MPI_MAX_WINDOWS && i < mpi_image_count; i++) {
-        const mpi_image_t *img = &mpi_images[i];
-        for (int w = 0; w < img->word_count; w++) {
-            g_window_store[i][w] = drive_pattern(img->words[w]);
-        }
-        unsigned w_idx = window_index(img->code);
-        g_window[w_idx] = g_window_store[i];
-        g_window_words[w_idx] = img->word_count;
-    }
 }
 
 static void start_pio(void) {
@@ -196,36 +133,25 @@ static void __not_in_flash_func(serve_forever)(void) {
         uint32_t snap = pio_sm_get_blocking(g_pio, SM_CAPTURE);
         rearm_respond();
 
-        uint32_t addr = g_gather[0][snap & 0xFF]
-                      | g_gather[1][(snap >> 8) & 0xFF]
-                      | g_gather[2][(snap >> 16) & 0xFF];
-
-        unsigned w_idx = (addr >> 13) & 7;
-        // Word addressing: AD0 selects the byte and is not decoded here.
-        unsigned word = (addr >> 1) & 0xFFF;
-
-        // word_count stops the code 0 chip short of the I/O page, and is zero
-        // for a window this board does not serve.  Answering outside our range
-        // would put us in a driver fight with the machine, so it is checked
-        // before anything is pushed.
-        if (word >= g_window_words[w_idx]) {
-            continue;
+        uint32_t pattern;
+        if (!mpi_lookup(&g_dec, mpi_address(&g_dec, snap), &pattern)) {
+            continue;       // not ours, or past the end of our window
         }
-        // Host logic can bank RAM in over a ROM window (on the UKNC, via port
-        // 177054).  Read the enable live rather than from the snapshot: it is
-        // sampled later in the cycle, which is the safe side to be on if the
-        // host derives it combinationally from the address.
+        // Host logic can bank RAM in over a ROM window.  On the UKNC the read
+        // strobe would simply never arrive, but the DS4 socket also has a real
+        // chip select, so honour it.  Read live rather than from the snapshot:
+        // it is sampled later in the cycle, the safe side to be on.
         if (!mpi_enabled()) {
             continue;
         }
-        pio_sm_put(g_pio, SM_RESPOND, g_window[w_idx][word]);
+        pio_sm_put(g_pio, SM_RESPOND, pattern);
     }
 }
 
 int main(void) {
     build_pin_masks();
-    build_gather_tables();
-    build_windows();
+    mpi_decode_init(&g_dec, mpi_images, mpi_image_count,
+                    g_window_store, MPI_MAX_WINDOWS);
     start_pio();
 
     gpio_init(GPIO_STATUS_LED);
