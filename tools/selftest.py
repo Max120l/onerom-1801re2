@@ -34,6 +34,37 @@ def image(window: int) -> list:
     return [word(window, i) for i in range(WORDS)]
 
 
+def load_dump(path):
+    """Read either a raw .bin or an "ADDR : DATA" log from a serial terminal.
+
+    Rigs that scan the whole 64 KB space and print each word are more useful
+    than a raw dump: the address is explicit, so every window can be checked at
+    once and a window answering out of turn is visible.
+    """
+    import re
+    import struct
+
+    raw = path.read_bytes()
+    text = raw.decode("ascii", errors="replace")
+    pairs = {}
+    for line in text.splitlines():
+        m = re.match(r"^\s*([0-9A-Fa-f]{4})\s*:\s*([0-9A-Fa-f]{4})\s*$",
+                     line.strip())
+        if m:
+            pairs[int(m.group(1), 16)] = int(m.group(2), 16)
+    if pairs:
+        return pairs, "log"
+
+    body = raw[:len(raw) - (len(raw) % 2)]
+    words_ = struct.unpack(f"<{len(body) // 2}H", body)
+    return {i * 2: w for i, w in enumerate(words_)}, "bin"
+
+
+def window_of(addr: int) -> int:
+    """Chip code answering for this address: complement of the top three bits."""
+    return (~((addr >> 13) & 7)) & 7
+
+
 def recover(window: int, w: int):
     """Return the index this word claims to be, or None if it is not ours."""
     index = w & 0xFFF
