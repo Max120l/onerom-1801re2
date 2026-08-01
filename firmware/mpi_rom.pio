@@ -12,9 +12,9 @@
 ; is just the GPIO number.  Keep these three defines in step with
 ; board_fire24e.h; build_pin_masks() asserts that they agree.
 
-.define PUBLIC PIN_nSYNC   0
-.define PUBLIC PIN_nDIN    0
-.define PUBLIC PIN_nRPLY   0
+.define PUBLIC PIN_nSYNC  18    ; SYN, socket pin 3
+.define PUBLIC PIN_nDIN   16    ; RD,  socket pin 1
+.define PUBLIC PIN_nRPLY  17    ; AN,  socket pin 2
 
 ; ---------------------------------------------------------------------------
 ; Address capture

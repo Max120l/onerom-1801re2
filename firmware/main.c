@@ -44,12 +44,21 @@ static uint32_t g_dirs_ad, g_dirs_ad_rply;
 // Pin inversion is baked in: the tables yield the CPU-level address directly.
 static uint16_t g_gather[3][256];
 
-// One 4096-entry table per chip code, or NULL if this board does not answer
-// for that 8 KB window.  Each entry is the finished 24-bit GPIO pattern: data
-// inverted and scattered onto the AD pins, nRPLY bit low.  Nothing is computed
-// per cycle.
+// One 4096-entry table per 8 KB window.  Each entry is the finished 24-bit GPIO
+// pattern: data inverted and scattered onto the AD pins, nRPLY bit low.
+// Nothing is computed per cycle.
+//
+// Indexed by the top three bits of the *logical* address, which is not the chip
+// code.  The code is what the chip's decoder sees on the inverted nAD13..nAD15
+// lines, so it is the ones' complement: code 000 answers for 160000-177777,
+// whose top bits are 111.  window_index() is the only place that conversion
+// happens.
 static const uint32_t *g_window[8];
 static uint16_t        g_window_words[8];   // 0 == window not served
+
+static inline unsigned window_index(uint8_t chip_code) {
+    return (~chip_code) & 7;
+}
 static uint32_t g_window_store[MPI_MAX_WINDOWS][4096];
 
 // ---------------------------------------------------------------------------
@@ -108,8 +117,9 @@ static void build_windows(void) {
         for (int w = 0; w < img->word_count; w++) {
             g_window_store[i][w] = drive_pattern(img->words[w]);
         }
-        g_window[img->code & 7] = g_window_store[i];
-        g_window_words[img->code & 7] = img->word_count;
+        unsigned w_idx = window_index(img->code);
+        g_window[w_idx] = g_window_store[i];
+        g_window_words[w_idx] = img->word_count;
     }
 }
 
@@ -123,6 +133,14 @@ static void start_pio(void) {
         // 8 mA matches what One ROM uses for 5 V hosts; see docs/VOLTAGE-LEVELS.
         gpio_set_drive_strength(gpio, GPIO_DRIVE_STRENGTH_8MA);
     }
+    // Socket pins 21 and 22 are not connected to anything in the host, so pull
+    // them somewhere definite rather than leaving CMOS inputs floating.  They
+    // feed no address bit, so their state cannot affect decoding either way.
+    static const uint8_t unused[] = UNUSED_SOCKET_GPIOS;
+    for (unsigned i = 0; i < count_of(unused); i++) {
+        gpio_pull_down(unused[i]);
+    }
+
     // Everything starts released.  The bus must never see a driver until the
     // address has been decoded as ours.
     pio_sm_set_pindirs_with_mask(g_pio, SM_RESPOND, 0, g_dirs_ad_rply);
@@ -179,14 +197,15 @@ static void __not_in_flash_func(serve_forever)(void) {
                       | g_gather[1][(snap >> 8) & 0xFF]
                       | g_gather[2][(snap >> 16) & 0xFF];
 
-        unsigned code = (addr >> 13) & 7;
+        unsigned w_idx = (addr >> 13) & 7;
         // Word addressing: AD0 selects the byte and is not decoded here.
         unsigned word = (addr >> 1) & 0xFFF;
 
-        // word_count stops the code 0 chip short of the I/O page.  Answering
-        // there would put us in a driver fight with the machine's own
-        // registers, so it is checked before anything is pushed.
-        if (word >= g_window_words[code]) {
+        // word_count stops the code 0 chip short of the I/O page, and is zero
+        // for a window this board does not serve.  Answering outside our range
+        // would put us in a driver fight with the machine, so it is checked
+        // before anything is pushed.
+        if (word >= g_window_words[w_idx]) {
             continue;
         }
         // Host logic can bank RAM in over a ROM window (on the UKNC, via port
@@ -196,7 +215,7 @@ static void __not_in_flash_func(serve_forever)(void) {
         if (!mpi_enabled()) {
             continue;
         }
-        pio_sm_put(g_pio, SM_RESPOND, g_window[code][word]);
+        pio_sm_put(g_pio, SM_RESPOND, g_window[w_idx][word]);
     }
 }
 

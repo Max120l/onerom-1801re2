@@ -38,48 +38,58 @@
 #define BUS_FIELD_WIDTH     24
 
 // ---------------------------------------------------------------------------
-// 1801RE2 chip pinout -- NOT VERIFIED
+// KR1801RE2 chip pinout
 // ---------------------------------------------------------------------------
 //
-// Everything below is a placeholder.  Three things must be confirmed against
-// the chip datasheet, the UKNC schematic, or the RE-mulator documentation
-// before this firmware is plugged into a host.  The first two destroy hardware
-// if wrong:
+// From the KR1801RE2 datasheet, table 11.26 and figure 11.30.  Power follows
+// JEDEC and matches what the Fire 24 PCB hard-wires: pin 24 = Ucc, pin 12 =
+// GND, so the board can be used unmodified.
 //
-//   1. POWER.  This code assumes socket pin 24 = +5V and pin 12 = GND, which is
-//      what the Fire 24 PCB hard-wires to its regulator and ground plane.  If
-//      the 1801RE2 puts power anywhere else, the Fire 24 cannot be used
-//      unmodified -- do not plug it in.
+//   pin  signal          pin  signal          pin  signal
+//    1   RD   (nDIN)      9   AD9             17   AD12
+//    2   AN   (nRPLY)    10   AD10            18   AD13
+//    3   SYN  (nSYNC)    11   AD11            19   AD14
+//    4   AD4             12   GND             20   AD15
+//    5   AD5             13   AD3             21   n/c
+//    6   AD6             14   AD2             22   n/c
+//    7   AD7             15   AD1             23   CS
+//    8   AD8             16   AD0             24   Ucc
 //
-//   2. SIGNALS.  Which socket pin carries nAD0..nAD15, nSYNC, nDIN and nRPLY.
+// All signals are active low / inverted, which is why the k1801 RTL names them
+// nAD, nSYNC, nDIN, nRPLY.  The datasheet lists AN as an input, which has to be
+// a misprint: a reply is something the ROM asserts, and figure 11.30 draws it
+// on the output side.  It is driven here, open-drain.
 //
-//   3. ENABLE.  Which pin the UKNC's port 177054 decode drives to bank this
-//      window away.  Getting this wrong does not destroy anything immediately,
-//      but it means driving the bus while the machine's RAM is also driving it.
-//
-// Confirm all three, fill in the tables, then define RE2_PINOUT_CONFIRMED.
+// Only CS polarity is still unconfirmed -- see GPIO_nSEL_ACTIVE_HIGH below.
 
-#if !defined(RE2_PINOUT_CONFIRMED)
-#error "Verify the 1801RE2 power, signal and enable pinout, fill in these tables, then -DRE2_PINOUT_CONFIRMED. See README.md."
-#endif
-
-// GPIO number carrying each inverted address/data line, nAD0 first.
+// GPIO number carrying each inverted address/data line, nAD0 first.  Order is
+// scrambled relative to the socket, which costs nothing: the address is
+// unscrambled through a lookup table and the data is pre-scrambled at boot.
+//
+// Note none of these land on GPIO 8 or 9, so all sixteen AD lines sit inside
+// the 24-bit field the PIO reads and writes.
 #define AD_GPIO { \
-    /* nAD0  */ 0, /* nAD1  */ 0, /* nAD2  */ 0, /* nAD3  */ 0, \
-    /* nAD4  */ 0, /* nAD5  */ 0, /* nAD6  */ 0, /* nAD7  */ 0, \
-    /* nAD8  */ 0, /* nAD9  */ 0, /* nAD10 */ 0, /* nAD11 */ 0, \
-    /* nAD12 */ 0, /* nAD13 */ 0, /* nAD14 */ 0, /* nAD15 */ 0 }
+    /* nAD0  */  3, /* nAD1  */  2, /* nAD2  */  1, /* nAD3  */  0, \
+    /* nAD4  */ 19, /* nAD5  */ 20, /* nAD6  */ 21, /* nAD7  */ 22, \
+    /* nAD8  */ 23, /* nAD9  */  7, /* nAD10 */  6, /* nAD11 */  5, \
+    /* nAD12 */  4, /* nAD13 */ 11, /* nAD14 */ 13, /* nAD15 */ 10 }
 
 // These three must match the .define values in mpi_rom.pio, which the PIO
 // assembler bakes into the WAIT instructions.  build_pin_masks() checks this.
-#define GPIO_nSYNC   0
-#define GPIO_nDIN    0
-#define GPIO_nRPLY   0
+#define GPIO_nSYNC  18    // SYN, socket pin 3
+#define GPIO_nDIN   16    // RD,  socket pin 1
+#define GPIO_nRPLY  17    // AN,  socket pin 2
 
-// Chip enable from the host's window-select logic.  0xFF means "this socket
-// has no enable signal" -- only correct if you have checked, because on the
-// UKNC every ROM window can be banked out in favour of RAM.
-#define GPIO_nSEL              0xFF
+// CS, socket pin 23.  This is the pin the UKNC's port 177054 decode drives to
+// bank a window out in favour of RAM.  Assumed active low, in keeping with
+// every other signal on this part -- confirm on a scope before trusting it,
+// because inverted sense means driving the bus exactly when we should not.
+#define GPIO_nSEL              15
 #define GPIO_nSEL_ACTIVE_HIGH  0
+
+// Socket pins 21 and 22 are not connected.  They are inside the 24-bit field
+// but contribute to no address bit, so they only need a pull to stop them
+// floating.
+#define UNUSED_SOCKET_GPIOS { 12, 14 }
 
 #endif // BOARD_FIRE24E_H

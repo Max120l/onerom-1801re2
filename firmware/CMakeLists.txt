@@ -26,8 +26,4 @@ target_link_libraries(mpi_rom
     hardware_pio
 )
 
-# Define this only once the 1801RE2 power and signal pinout in board_fire24e.h
-# has been checked against the datasheet or a known-good board.
-# target_compile_definitions(mpi_rom PRIVATE RE2_PINOUT_CONFIRMED=1)
-
 pico_add_extra_outputs(mpi_rom)

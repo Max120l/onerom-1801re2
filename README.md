@@ -6,8 +6,8 @@ Q-bus, where address and data share one set of sixteen lines.
 
 Target machine: **Elektronika MS 0511 (UKNC)**, which uses four of them.
 
-**Status: design plus a skeleton. The bus protocol code has never run on
-hardware, and the chip pinout is not yet filled in.** The image conversion
+**Status: design plus a skeleton. The pinout is in and the mapping checks out,
+but the bus protocol code has never run on hardware.** The image conversion
 tooling is finished and tested. Read [Before you plug anything in](#before-you-plug-anything-in)
 first, and [Prior art](#prior-art) before deciding this is the right project at
 all — someone has already built a purpose-made board for this job.
@@ -58,6 +58,32 @@ the slave latches it; the host releases the AD lines and asserts nDIN; the slave
 drives data and pulls nRPLY low; the host takes the data and releases nDIN; the
 slave releases the bus; nSYNC releases.
 
+### Pinout
+
+From the KR1801RE2 datasheet, table 11.26 and figure 11.30. Power follows JEDEC
+and matches what the Fire 24 hard-wires, so the board drops in unmodified.
+
+| pin | signal | | pin | signal | | pin | signal |
+|-----|--------|-|-----|--------|-|-----|--------|
+| 1 | RD (nDIN) | | 9 | AD9 | | 17 | AD12 |
+| 2 | AN (nRPLY) | | 10 | AD10 | | 18 | AD13 |
+| 3 | SYN (nSYNC) | | 11 | AD11 | | 19 | AD14 |
+| 4 | AD4 | | 12 | GND | | 20 | AD15 |
+| 5 | AD5 | | 13 | AD3 | | 21 | n/c |
+| 6 | AD6 | | 14 | AD2 | | 22 | n/c |
+| 7 | AD7 | | 15 | AD1 | | 23 | **CS** |
+| 8 | AD8 | | 16 | AD0 | | 24 | Ucc |
+
+Everything is active low, which is why the k1801 RTL names these nAD, nSYNC,
+nDIN and nRPLY. Two things are worth pulling out:
+
+**There is a chip select on pin 23**, which is how the UKNC banks a window out —
+see below. The design had assumed such a pin had to exist; it does.
+
+**The datasheet lists AN as an input.** That has to be a misprint: a reply is
+something the ROM asserts, and figure 11.30 draws it on the output side. It is
+driven here, open-drain.
+
 ## What the UKNC does with them
 
 The MS 0511 has two K1801VM2 processors — a central one at 8 MHz and a
@@ -82,10 +108,9 @@ between working firmware and a board that fights the machine for its own bus.
 the PP sees ROM or RAM: bit 5 for 120000, bit 6 for 140000, bit 7 for 160000,
 and bits 0–4 for the 100000 window, which can also be switched to one of six
 banks of external cartridge ROM. A mask ROM has no logic to do that itself, so
-the socket must be carrying an enable from external decode. **Ignore it and you
-will drive the bus while the PP's RAM is also driving it.** Which pin it arrives
-on is one of the things to confirm from the schematic; `GPIO_nSEL` in
-`board_fire24e.h` is where it goes.
+the socket has to be carrying an enable from external decode — and it is, on
+pin 23, CS. **Ignore it and you will drive the bus while the PP's RAM is also
+driving it.** The firmware reads it live at decode time.
 
 **The code 0 chip overlaps the I/O page.** Its window is 160000–177777 but only
 160000–176777 is ROM; the top 512 bytes belong to the machine's registers.
@@ -153,6 +178,18 @@ handled the same way, in reverse, but entirely at boot: the drive pattern for
 every one of the 4096 words is precomputed, so the serving path never scatters a
 bit at runtime.
 
+With the real pinout in, the sixteen AD lines land on GPIO
+
+```
+0 1 2 3 4 5 6 7  10 11  13  19 20 21 22 23
+```
+
+with nSEL on 15, nDIN on 16, nRPLY on 17 and nSYNC on 18. Nothing contiguous
+anywhere, which settles the question — but every one of them is inside the
+24-bit field, so one read and one write still cover the whole bus. Socket pins
+21 and 22 are not connected; they land on GPIO 12 and 14, feed no address bit,
+and are pulled down so they do not float.
+
 GPIO 8 and 9 are deliberately never muxed to the PIO and never appear in a
 direction mask, so a fitted X jumper cannot be shorted by an output driver.
 
@@ -194,7 +231,7 @@ having fired.
 |------|--|
 | `firmware/mpi_rom.pio` | the two state machines |
 | `firmware/main.c` | table construction and the core 1 serving loop |
-| `firmware/board_fire24e.h` | socket-to-GPIO map (verified) and chip pinout (**not** verified) |
+| `firmware/board_fire24e.h` | socket-to-GPIO map and chip pinout |
 | `firmware/rom_images.h` | image table interface |
 | `tools/re2_convert.py` | dump format conversion, tested |
 | `tools/gen_rom_images.py` | emits `firmware/rom_images.c` from dumps |
@@ -247,63 +284,48 @@ const mpi_image_t mpi_images[] = {
 
 ## Before you plug anything in
 
-Three things are unresolved. The first two can destroy hardware.
+Power is settled: the 1801RE2 follows JEDEC, so pin 24 is Ucc and pin 12 GND,
+exactly what the Fire 24 hard-wires to its regulator and ground plane. The
+board drops in unmodified. Two smaller things remain open.
 
-**Power pin position.** The Fire 24 hard-wires socket pin 24 to its regulator
-input and pin 12 to ground, because that is where 23xx/27xx ROMs put them. If
-the 1801RE2 puts +5 V or ground anywhere else, the board is wrong for the job
-and must not be inserted. Check this first, with a datasheet or a meter on a
-board you can sacrifice. Everything else here is worthless if this is wrong.
+**CS polarity.** The datasheet names the pin CS without settling whether it is
+asserted low or high. `GPIO_nSEL_ACTIVE_HIGH` is set to 0, i.e. active low, in
+keeping with every other signal on this part — but this is the one guess left in
+the pin configuration, and getting it inverted means driving the bus at exactly
+the moments the machine has banked RAM in over the window. Confirm it on a scope
+before trusting it. A UKNC schematic (RetroPC.org hosts a corrected set) would
+settle it, and would also show how port 177054 reaches each socket.
 
-**Signal assignment.** Which socket pin carries each of nAD0–nAD15, nSYNC, nDIN
-and nRPLY. The part is DIP-24 and the signal count fits comfortably — 16 + 3 + 2
-power = 21, leaving room for the enable and a couple of spares — but I could not
-retrieve the pin numbering: every source that has it is outside this
-environment's network egress allowlist, so the requests never left the sandbox.
-That is a limitation here, not a dead end for you. In rough order of
-convenience:
-
-- **The RE-mulator manual**, `pdp-11.ru/mybk/emulator_1801RE2-1801RR1/1801pp1_manual.pdf`
-  — a DIP-24 drop-in replacement has to document exactly this.
-- The [RE-mulator thread](https://zx-pk.ru/threads/21519-re-mulyator-vnutriskhemnyj-emulyator-1801re2-1801rr1.html)
-  on zx-pk.ru, and the [pk-fpga.ru thread](https://forum.pk-fpga.ru/viewtopic.php?f=43&t=5450).
-- The UKNC schematic (RetroPC.org hosts a corrected set), which additionally
-  shows the port 177054 enable wiring you need anyway.
-- `oldpc.su/articles/re2/1801re2.html` and the LSI documentation at
-  `archive.pdp-11.org.ru/BIBLIOTEKA/DVKTXT/LSI/`.
-
-**Enable line and write behaviour.** Which pin carries the window enable, and
-one question worth answering from the datasheet rather than guessing: **does a
-real 1801RE2 assert nRPLY on a write into its window?** If it does not, writes
-to ROM produce a bus timeout trap, and software may depend on that. The
+**Write behaviour.** Worth answering from the datasheet rather than guessing:
+**does a real 1801RE2 assert nRPLY on a write into its window?** If it does not,
+writes to ROM produce a bus timeout trap, and software may depend on that. The
 BK-ROM-Disk GAL (`RPLY = CHIPSEL & (DIN # !_DOUT)`) does reply to writes, but
 that is a RAM-disk controller, not a ROM. If the answer is "no", nothing needs
 adding: this firmware only ever responds to nDIN.
-
-`board_fire24e.h` refuses to compile until you fill the tables in and define
-`RE2_PINOUT_CONFIRMED`. That is deliberate.
 
 ## Bring-up
 
 Do not go straight into a host.
 
-1. Confirm the power pins. Nothing else matters until this is settled.
-2. Fill in `board_fire24e.h` and build.
-3. Drive the board from a second RP2350 running a synthetic MPI master, or from
+1. Build, and check the pin map against your own reading of the datasheet.
+   `board_fire24e.h` carries the pinout in a comment for exactly that.
+2. Drive the board from a second RP2350 running a synthetic MPI master, or from
    a logic analyser plus a hand-clocked cycle. Check the address snapshot
    decodes to what you presented, and that the AD lines and nRPLY stay hi-Z for
    an address outside the configured window — that is the test that protects the
    host's bus drivers.
-4. Scope the real machine before committing — on the **peripheral** processor's
+3. Scope the real machine before committing — on the **peripheral** processor's
    bus. Capture nSYNC, nDIN, nRPLY and a couple of AD lines during a ROM read
    with the original chip in place. That gives you the actual SYNC-to-DIN gap,
    which tells you how much slack core 1 has, and shows whether the AD lines are
    driven push-pull or open-drain. This firmware drives them push-pull during
    its response window; if the host's pull-ups are weak and something else is
    contending, that assumption needs revisiting.
-5. Watch the enable pin across a port 177054 write that banks RAM into your
-   window, and confirm the firmware goes quiet when it does.
-6. Only then, one image, one window, in the host. Start with 206 or 207 — the
+4. On the same capture, settle CS polarity: watch pin 23 across a port 177054
+   write that banks RAM into that window, and confirm which level means
+   "someone else owns this address range". Then check the firmware goes quiet
+   when it should.
+5. Only then, one image, one window, in the host. Start with 206 or 207 — the
    plain system ROM windows, no banking games and no I/O page adjacency.
 
 On levels: the RP2350 GPIOs are directly connected to the socket, with no
