@@ -413,6 +413,17 @@ Short **pin 5 to pin 4** and power up, and the volume mounts. BOOT reaches
 QSPI_SS through a 1K against its 10K pull-up, so grounding it wins. If the board
 is already powered, briefly ground **pin 7** (RUN) instead of power-cycling.
 
+J2 is a footprint, though, not necessarily a fitted header — on a board that
+shipped without it there is nothing to short. In that case SWD is the route, and
+it is the better one anyway since it works regardless of what is on the flash:
+
+```console
+$ openocd -f interface/cmsis-dap.cfg -f target/rp2350.cfg       -c "adapter speed 5000"       -c "program firmware/build/mpi_rom.elf verify reset exit"
+```
+
+SWCLK and SWDIO are J2 pins 6 and 8, ground on 2 or 4. Those pins double as
+image-select jumpers C and D, so leave those jumpers off while programming.
+
 That route needs no working firmware at all, which makes it the real safety net:
 a corrupt image sends the bootrom to USB by itself.
 
