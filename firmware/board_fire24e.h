@@ -28,7 +28,11 @@
 
 #define GPIO_X1              9    // jumper pad, not a socket pin
 #define GPIO_X2              8    // jumper pad, not a socket pin
+// Status LED: +3V3 -> R5 (1K) -> anode, cathode -> this pin.  It lights when
+// the pin is driven LOW.
 #define GPIO_STATUS_LED     29
+#define STATUS_LED_ON        0
+#define STATUS_LED_OFF       1
 #define GPIO_SEL_JUMPERS  { 25, 24, 26, 27 }
 
 // Image-select jumper 0, reused as a recovery jumper.  This firmware carries no

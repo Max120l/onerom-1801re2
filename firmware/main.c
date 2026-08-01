@@ -49,6 +49,13 @@ static uint  g_off_capture, g_off_respond;
 // a torn read costs nothing but a slightly wrong blink, so no synchronisation.
 static volatile uint32_t g_served;
 
+// Cycles we prepared a reply for that were never taken. Some are normal -- a
+// write into our window, or a read the host banked elsewhere after the address
+// strobe. But a reply we assembled too late to be sampled also lands here, and
+// that is the one failure mode a bench reader cannot show, so it is worth
+// counting rather than guessing at.
+static volatile uint32_t g_missed;
+
 static mpi_decode_t g_dec;
 static uint32_t g_window_store[MPI_MAX_WINDOWS][4096];
 
@@ -152,10 +159,26 @@ static void __not_in_flash_func(rearm_respond)(void) {
     pio_sm_exec(g_pio, SM_RESPOND, pio_encode_jmp(g_off_respond));
 }
 
+#define IRQ_SERVED 0
+
 static void __not_in_flash_func(serve_forever)(void) {
+    bool armed = false;
     while (true) {
         uint32_t snap = pio_sm_get_blocking(g_pio, SM_CAPTURE);
-        rearm_respond();
+
+        // The response machine raises IRQ_SERVED once the host has taken the
+        // data, so a cycle that completed leaves it idle at its PULL with
+        // nothing stale to carry forward -- no re-arm needed, which keeps the
+        // three register writes off the path that has to finish before the read
+        // strobe arrives. Only an abandoned cycle needs clearing up.
+        if (pio_interrupt_get(g_pio, IRQ_SERVED)) {
+            pio_interrupt_clear(g_pio, IRQ_SERVED);
+            armed = false;
+        } else if (armed) {
+            g_missed++;
+            rearm_respond();
+            armed = false;
+        }
 
         uint32_t addr = mpi_address(&g_dec, snap);
         uint32_t pattern;
@@ -174,6 +197,7 @@ static void __not_in_flash_func(serve_forever)(void) {
             continue;
         }
         pio_sm_put(g_pio, SM_RESPOND, pattern);
+        armed = true;
         g_served++;
     }
 }
@@ -226,11 +250,22 @@ int main(void) {
     //   dark          nothing is reaching us -- no address strobe, or no power
     //   fast flicker  serving normally
     //   slow blink    a handful of cycles then nothing, i.e. the machine gave up
-    uint32_t last = 0;
+    uint32_t last_served = 0, last_missed = 0;
+    bool phase = false;
     while (true) {
-        uint32_t now = g_served;
-        gpio_put(GPIO_STATUS_LED, now != last);
-        last = now;
-        sleep_ms(50);
+        uint32_t served = g_served, missed = g_missed;
+        bool active  = served != last_served;
+        bool missing = missed != last_missed;
+        phase = !phase;
+
+        // Lit means answering. Blinking means answering but dropping some,
+        // which is the interesting failure: replies assembled too late to be
+        // taken. Dark means nothing is asking.
+        bool on = active && (!missing || phase);
+        gpio_put(GPIO_STATUS_LED, on ? STATUS_LED_ON : STATUS_LED_OFF);
+
+        last_served = served;
+        last_missed = missed;
+        sleep_ms(100);
     }
 }

@@ -54,6 +54,11 @@
 ; enabling its direction pulls the line low and clearing the direction hands it
 ; back to the bus pull-up.  The line is never driven high.
 ;
+; The IRQ at the end lets the CPU tell a cycle that was served from one that was
+; prepared and then abandoned -- a write, or a window the host banked away, so
+; the read strobe never came.  Without it the machine has to be re-armed on
+; every cycle just in case, which is pure cost on the path that matters.
+;
 ; Configure: out base 0, out shift RIGHT, autopull disabled.
 
 .program mpi_respond
@@ -68,6 +73,7 @@
     mov osr, y
     out pindirs, 24             ; assert nRPLY -- handshake complete
     wait 1 pin PIN_nDIN         ; host has taken the data
+    irq nowait 0                ; flag a completed serve, for the CPU to see
 .wrap
 
 % c-sdk {
