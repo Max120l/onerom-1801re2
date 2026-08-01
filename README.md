@@ -258,6 +258,27 @@ cannot carry state across cycles.
 | `firmware/rom_images.h` | image table interface |
 | `tools/re2_convert.py` | dump format conversion, tested |
 | `tools/gen_rom_images.py` | emits `firmware/rom_images.c` from dumps |
+| `tools/diagnose_dump.py` | tells a bad dump from a bad chip |
+
+### Diagnosing a dump
+
+A reader that ignores RPLY cannot tell "the chip did not answer" from "the chip
+answered with these bits". When the chip stays silent the AD lines float to
+whatever the rig's pull resistors give, so a bit position reads as one constant
+value across the whole dump — indistinguishable, by eye, from a stuck bit.
+
+The chip only answers when nAD13–nAD15 match its mask-programmed code, so
+addressing the wrong 8 KB window silences it entirely. That makes "wrong window"
+and "dead chip" look alike, and the four UKNC chips have four different codes.
+
+`diagnose_dump.py` separates them by shape. Whole bus constant means no reply;
+one or two bit positions constant means a stuck bit or an open line; nothing
+constant but still disagreeing with a reference means addressing or timing.
+Pass `--reference` with a known-good image — the k1801 archive has all four
+UKNC chips — and it will say which pattern the differences fit.
+
+The analysis is invariant under the programmer-order transform, so it does not
+matter which orientation either file is in.
 
 ### Image format
 
