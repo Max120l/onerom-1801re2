@@ -45,6 +45,33 @@ def bit_profile(w):
     return ones, constant
 
 
+def address_echo(w):
+    """Data bits that are tracking the address rather than the chip's output.
+
+    On a multiplexed bus the reader drives the address onto the AD lines and
+    then releases them for the chip to drive data. If a line never reaches the
+    chip, the trace floats and holds the last thing the reader put on it -- so
+    the "data" read back is the address bit that line just carried.
+
+    A mask ROM cannot do this: its bits are metal and have no idea what address
+    preceded them. A strong correlation here is proof the line is open, not that
+    the chip is bad. Orientation-independent, since inverting word addresses
+    only flips the sign of the correlation.
+    """
+    n = len(w)
+    out = []
+    for b in range(16):
+        best = (0.0, None)
+        for ab in range(12):
+            agree = sum(1 for i in range(n) if ((w[i] >> b) & 1) == ((i >> ab) & 1))
+            score = abs(agree / n - 0.5) * 2          # 0 = unrelated, 1 = exact
+            if score > best[0]:
+                best = (score, ab)
+        if best[0] > 0.75:
+            out.append((b, best[1], best[0]))
+    return out
+
+
 def longest_run(w):
     best = run = 1
     for i in range(1, len(w)):
@@ -74,9 +101,19 @@ def report_one(name, w):
     return constant
 
 
-def verdict(w, constant):
+def verdict(w, constant, echoes):
     """Interpret the shape of the damage."""
     print("\nreading:")
+    if echoes:
+        for b, ab, score in echoes:
+            print(f"  ** bit {b} tracks address bit {ab} ({score * 100:.0f}%).")
+        print("  Those lines are carrying back the address the reader drove,")
+        print("  which a mask ROM cannot do -- its bits are metal and know")
+        print("  nothing about the preceding address. They are open circuit")
+        print("  somewhere between the chip and the reader.")
+        if not constant:
+            return
+        print()
     if len(set(w)) == 1:
         print("  Every word is identical. The chip almost certainly never drove")
         print("  the bus at all -- wrong window addressed, CS not asserted, or")
@@ -119,6 +156,10 @@ def compare(sus, ref, sus_name, ref_name):
         vals = {(sus[i] >> b) & 1 for i in diffs if ((sus[i] ^ ref[i]) >> b) & 1}
         if len(vals) == 1:
             stuck.append((b, vals.pop()))
+    echo_bits = {b for b, _, _ in address_echo(sus)}
+    if echo_bits & set(bits):
+        print(f"  bits {sorted(echo_bits & set(bits))} are echoing the address, "
+              f"so they are open lines")
     if len(stuck) == len(bits) and len(bits) > 8:
         levels = {v for _, v in stuck}
         towards = f"all to {levels.pop()}" if len(levels) == 1 else "each one way"
@@ -129,6 +170,9 @@ def compare(sus, ref, sus_name, ref_name):
         desc = ", ".join(f"bit {b} forced to {v}" for b, v in stuck)
         print(f"  every difference is one-directional: {desc}")
         print("  -> consistent with a stuck bit or an open AD line")
+    elif echo_bits & set(bits):
+        print("  -> the remaining differences are on those open lines; nothing")
+        print("     here implicates the chip")
     else:
         print("  differences go both directions on at least one bit")
         print("  -> not a simple stuck bit; suspect addressing or timing")
@@ -158,6 +202,7 @@ def main() -> int:
               f"{base:06o}-{base + 0o17777:06o} octal\n")
 
     constant = report_one(args.dump.name, w)
+    echoes = address_echo(w)
 
     conv = looks_like_pdp11(convert(body))
     raw = looks_like_pdp11(body)
@@ -168,7 +213,7 @@ def main() -> int:
     if best["rts_pc"] < 5:
         print("  -> this does not look like PDP-11 code in either orientation")
 
-    verdict(w, constant)
+    verdict(w, constant, echoes)
 
     rc = 0
     if args.reference:
