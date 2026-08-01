@@ -192,8 +192,16 @@ def bond_wire_check(sus, ref, bad_bits):
 
     So this rules out a broken bond and a bad contact. It does NOT rule out a
     dead output driver on the die, which fails one direction only and looks
-    identical from the reader. Separating those two needs a dump with the
-    socket empty.
+    identical from the reader.
+
+    Two controls separate those, and both are worth doing before condemning
+    anything. Dump with the socket empty, to learn what "nobody driving" looks
+    like on this rig. And dump a chip you know to be good, to prove the rig
+    reads all sixteen lines. If the rig passes that and the address decode
+    passes this, the fault is the chip's output stage -- which fails in one
+    direction only and is exactly what bus contention or ESD damages, the
+    output transistors sitting right on the pad while the input buffer hides
+    behind protection.
 
     Says nothing about nAD0: that is the byte select and a ROM never reads it.
     """
