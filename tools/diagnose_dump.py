@@ -179,6 +179,52 @@ def compare(sus, ref, sus_name, ref_name):
     return len(diffs)
 
 
+def bond_wire_check(sus, ref, bad_bits):
+    """Could the chip have received the address on the lines that read wrong?
+
+    The AD lines carry both directions through one bond wire each, so a wire
+    open inside the package takes the input path down with the output path. If
+    the chip had been blind to an address bit, every access would have returned
+    its partner word and the *good* data bits would disagree with the reference
+    all over the place. They do not, then the wire is intact and only the return
+    path is at fault -- which is outside the package.
+
+    Says nothing about nAD0: that is the byte select and a ROM never reads it.
+    """
+    good = 0xFFFF
+    for b in bad_bits:
+        good &= ~(1 << b)
+    n = min(len(sus), len(ref))
+    actual = sum(1 for k in range(n) if (sus[k] & good) != (ref[k] & good))
+    if actual:
+        return None                      # good bits do not match; test says nothing
+
+    print("\n  could the chip have received the address on those lines?")
+    verdict = []
+    for b in sorted(bad_bits):
+        if b == 0:
+            print("    nAD0 is the byte select, never read by a ROM -- no evidence")
+            continue
+        ab = b - 1                       # nAD1 carries word-address bit 0
+        if ab >= 12:
+            continue
+        blind = sum(1 for k in range(n)
+                    if (sus[k] & good) != (ref[k & ~(1 << ab)] & good))
+        print(f"    nAD{b}: had the chip been blind to it, {blind} of {n} words")
+        print(f"          would read wrong on the good bits. Actual: 0.")
+        verdict.append(b)
+    if verdict:
+        print("\n    -> the chip decoded those address bits perfectly, so the")
+        print("       bond wires carry signal and the pins make contact. That")
+        print("       rules out an open bond and a bad socket connection.")
+        print("       It does NOT rule out a dead output driver on the die,")
+        print("       which would also leave the line floating. To separate")
+        print("       those, dump again with the socket empty: if the same bits")
+        print("       misbehave identically with no chip present, the chip was")
+        print("       never involved.")
+    return verdict
+
+
 def load(path):
     body, code = split_dump(path.read_bytes())
     return body, code
@@ -227,6 +273,11 @@ def main() -> int:
         ref = r if rc_direct <= rc_conv else rconv
         note = "" if rc_direct <= rc_conv else " (converted to match)"
         rc = compare(w, ref, args.dump.name, args.reference.name + note)
+        if rc:
+            changed = 0
+            for i in range(min(len(w), len(ref))):
+                changed |= w[i] ^ ref[i]
+            bond_wire_check(w, ref, [b for b in range(16) if (changed >> b) & 1])
     return 1 if rc else 0
 
 
