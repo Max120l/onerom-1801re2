@@ -187,6 +187,51 @@ The alternative is to stop fighting the socket and build into a cartridge, which
 carries the bus, the strobes and the enables by design. That trades three bodge
 wires for a mechanical adapter from a 24-pin DIP footprint.
 
+## Running your own code on the PP
+
+Because the board *is* the ROM, it owns the machine from reset — which makes it
+possible to replace the system monitor with a diagnostic that runs on the
+peripheral processor itself.
+
+The hook is the power-up vector. The PP fetches its starting PC and PSW from a
+HALT-mode vector at **160000/160002**, which is offset 0 of the code 0 image.
+The stock monitor points it at 160300; put your own value there and your code
+runs before anything else in the machine does, with no monitor to work around.
+
+Reporting results is the harder half — at reset the PP has no screen it can
+reach unaided. So the program signals by *reading* from reserved addresses.
+Every address is on the AD lines at the strobe and the board latches every
+strobe, so the board sees each beacon go past. It is the ROM under the program
+and the instrument watching it at once, which is not a thing a mask ROM could
+ever be. Beacons live in PP RAM near the top, so a read there disturbs nothing;
+only the address matters, never the data.
+
+```console
+$ python3 tools/make_testrom.py -o testrom.bin
+wrote testrom.bin: 32256 bytes, 48 words of code
+  power-up vector at 160000 -> 160300, PSW 000340
+  beacons at 077700: 0=alive 1=RAM ok 2=RAM bad 3=done
+
+$ python3 test/test_testrom.py
+healthy RAM:                     beacon sequence: [0, 1, 3]
+RAM with a bit that will not set: beacon sequence: [0, 2, 3]
+all checks passed
+```
+
+`tools/pdp11asm.py` is a small assembler covering what test code needs, and
+`test/test_testrom.py` runs the assembled image in a model of the PP before it
+goes near hardware. That simulator immediately earned its place: the first RAM
+test wrote each word's own address into it, which is a good address-decode test
+but a weak stuck-bit test — a location only proves bit N works if its address
+happens to have bit N set. A bit stuck low at an address that never sets it went
+straight through. Hence the second pass with the complement, so every bit takes
+both values at every location.
+
+Next, in rough order of usefulness: run the image in ukncbtl, which takes the
+same 32 KB file and costs nothing to be wrong in; teach the firmware to watch
+the beacon range and report on the status LED; then extend the suite outward
+into the I/O page and the channel to the central processor.
+
 ## Prior art
 
 Before going further, know that this problem has been solved. The **RE-mulator**
