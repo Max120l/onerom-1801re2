@@ -154,6 +154,39 @@ devices driving the same RPLY and the same AD lines is a bus fight, and the
 three are still soldered down, generate an image set containing *only* the 205 —
 that is a straight one-for-one replacement and needs no desoldering.
 
+### Adding ROMs beyond the four windows
+
+The PP has no spare address space: 000000-077777 is RAM, 120000-176777 is the
+three fixed ROM windows, 177000 up is I/O. The only place more ROM can go is the
+100000 window, which port 177054 switches between PP RAM, the on-board 205, and
+cartridge banks — two slots of three 8 KB banks each.
+
+The bus really is shared. XS1 carries the same 1AD lines, K1SYNC, K1RPLY and
+K1DIN as the ROM sockets, plus all four chip enables: CE0 on B12, CE1 on B14,
+CE2 on B13, CE3 on A12. A cartridge is not on a separate bus, it is on this one
+with its own enable.
+
+What the DS4 socket does **not** carry is which bank is selected. Pin 23 is CE0
+alone, meaning "the on-board ROM owns this window" — so when software switches
+to a cartridge, CE0 deasserts and the board correctly goes quiet, but it has no
+way to know that bank 2 of slot 1 is now wanted. Serving cartridge banks from
+this socket therefore needs CE1, CE2 and CE3 brought in by wire.
+
+There are pins for it. Socket pins 21 and 22 are not connected in the machine
+and land on GPIO 12 and 14, and the X1/X2 jumper pads give GPIO 9 and 8 — four
+spare inputs for three enables. RAM is not the constraint either: eight windows
+already cost 128 KB of the RP2350's 520 KB, and six more banks would add 96 KB.
+
+One thing to establish first: whether EDIN asserts for reads the machine has
+directed at a cartridge, or only for the on-board ROM. If it is qualified by CE0
+as well, the read strobe never arrives for a cartridge access and K1DIN has to
+be wired in too. A scope on pin 1 while software selects a cartridge bank
+settles it.
+
+The alternative is to stop fighting the socket and build into a cartridge, which
+carries the bus, the strobes and the enables by design. That trades three bodge
+wires for a mechanical adapter from a 24-pin DIP footprint.
+
 ## Prior art
 
 Before going further, know that this problem has been solved. The **RE-mulator**
