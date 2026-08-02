@@ -187,6 +187,40 @@ The alternative is to stop fighting the socket and build into a cartridge, which
 carries the bus, the strobes and the enables by design. That trades three bodge
 wires for a mechanical adapter from a 24-pin DIP footprint.
 
+## Open: the boot menu
+
+An MS 0511 running this ROM set should show a boot menu — ЗАГРУЗКА, with disk,
+ROM cartridge, network, C2, tape, debug and **тестирование** as options. The
+emulator draws it from the identical 32 KB image, so the menu is unquestionably
+in the ROM the board is serving. A machine that reaches a cursor and answers УСТ
+but never shows the menu is therefore taking a different branch, not missing
+code.
+
+The branch is findable. The monitor's entry at 160300 begins:
+
+```
+160300  013704 172660   mov @#172660, r4
+160304  005000          clr r0
+160306  010406          mov r4, sp
+160310  100465          bpl ...
+160312  032737 000020 177716   bit #20, @#177716
+```
+
+Within five instructions it tests **bit 4 of the system control register at
+177716**. The emulator has that register reading 0 at reset and shows the menu,
+so a machine that skips the menu plausibly reads that bit set — which would make
+this a hardware input, a strap or a connector pin, rather than anything to do
+with the ROM. Contemporary accounts fit: a student station booted straight from
+the network while a teacher's station offered the menu, and СТОП dropped a
+student station out to it.
+
+Reading 177716 on the real machine is exactly what the test ROM is for, and it
+is the obvious next use of it: beacon the register's value out and compare
+against the emulator.
+
+Note also that option 7 is a diagnostic suite already present in the stock ROM.
+Worth seeing what it covers before writing more.
+
 ## Running your own code on the PP
 
 Because the board *is* the ROM, it owns the machine from reset — which makes it
