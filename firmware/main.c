@@ -33,11 +33,19 @@
 
 // The machine waits for our reply, so being slow costs wait states rather than
 // data -- but only up to the point where the read strobe has come and gone
-// before we answer, and then the cycle gets no reply at all.  The whole CPU
-// path between the address strobe and the pattern reaching the response FIFO
-// therefore wants to be short.  200 MHz is a modest step up from the 150 MHz
-// default and buys a third off it at stock voltage.
-#define MPI_SYS_CLK_KHZ  200000
+// before we answer, and then the cycle gets no reply at all.  The CPU path
+// between the address strobe and the pattern reaching the response FIFO is
+// what has to fit.
+//
+// 150 MHz is the RP2350's rated speed and an MS 0511 boots on it, so that is
+// the default: running out of spec to buy margin against a deadline we are
+// comfortably inside would be paying a real cost for an imagined one.
+//
+// The status LED is what justifies the choice rather than assumption -- it
+// blinks when replies are prepared and not taken. If it ever blinks in normal
+// use, raise this; 200000 works at stock voltage and takes about a third off
+// the path.
+#define MPI_SYS_CLK_KHZ  150000
 
 #define SM_CAPTURE  0
 #define SM_RESPOND  1

@@ -397,6 +397,23 @@ BK-ROM-Disk GAL (`RPLY = CHIPSEL & (DIN # !_DOUT)`) does reply to writes, but
 that is a RAM-disk controller, not a ROM. If the answer is "no", nothing needs
 adding: this firmware only ever responds to nDIN.
 
+## Which build to run
+
+Both 150 MHz and 200 MHz boot an MS 0511, so the deadline is not tight and the
+default is **150 MHz** — the RP2350's rated speed. Overclocking to buy margin
+against a deadline you are comfortably inside is a real cost for an imagined
+benefit: more power, more heat, more radiated noise, inside a machine whose
+other problems are usually analogue.
+
+`MPI_SYS_CLK_KHZ` in `main.c` raises it if that ever changes. The status LED is
+what should decide it rather than caution — it blinks when replies are prepared
+and not taken. Solid in normal use means the clock is not the constraint.
+
+Keep `SOCKET_CS_CODE` at `03` for the DS4 socket. Ignoring CS made no difference
+to booting, but that only shows CE0 is irrelevant while the window holds the
+on-board ROM. It exists to say when the window belongs to RAM or a cartridge
+instead, and honouring it is what keeps the board off the bus then.
+
 ## Building
 
 Needs `arm-none-eabi-gcc`, CMake, Ninja and the Pico SDK. The board carries an
