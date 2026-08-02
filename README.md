@@ -521,6 +521,22 @@ selected, misaligned. A parallel bus cannot displace bits, so that belongs to
 whatever samples the lines, not to the board; `check_selftest.py` now names it
 rather than blaming an address line.
 
+### Verifying the images
+
+The four converted images, concatenated in window order (205, 206, 207, 208),
+are byte-identical to the reference ROM that ukncbtl ships — all 32256 bytes:
+
+```python
+ours = b"".join(convert(split_dump(Path(f"{n}_mc0511.rom").read_bytes())[0])
+                for n in (205, 206, 207, 208))
+assert ours[:32256] == Path("uknc_rom.bin").read_bytes()
+```
+
+Worth running before suspecting the board of anything. It checks the image
+choice, the programmer-order conversion, the window ordering and the I/O page
+boundary in one line — the reference is 32256 bytes rather than 32768 precisely
+because 177000-177777 is the I/O page.
+
 ### Result in the machine
 
 An MS 0511 with all four mask ROMs removed and one board in the DS4 socket
