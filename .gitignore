@@ -3,3 +3,4 @@ __pycache__/
 firmware/rom_images.c
 firmware/build/
 test/build/
+firmware/build-watch/

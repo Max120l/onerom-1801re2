@@ -196,30 +196,99 @@ in the ROM the board is serving. A machine that reaches a cursor and answers У�
 but never shows the menu is therefore taking a different branch, not missing
 code.
 
-The branch is findable. The monitor's entry at 160300 begins:
+### What the monitor actually does at power-up
+
+Disassembled with `tools/pdp11dis.py`, the entry at 160300 reads:
 
 ```
-160300  013704 172660   mov @#172660, r4
-160304  005000          clr r0
-160306  010406          mov r4, sp
-160310  100465          bpl ...
-160312  032737 000020 177716   bit #20, @#177716
+160300  013704 172660         mov @#172660, r4     ; 172660 is in ROM: 000450
+160304  005000                clr r0
+160306  010406                mov r4, sp
+160310  100465                bmi 160464           ; warm-start check
+160312  032737 000020 177716  bit #20, @#177716
+160320  001404                beq 160332           ; bit 4 clear -> cold start
+160322  013700 000000         mov @#0, r0          ; bit 4 set: restart vector
+160326  001401                beq 160332
+160330  000110                jmp (r0)
+160332  012737 000040 177716  mov #40, @#177716    ; hold the CPU in reset
+160340  004767 012706         jsr pc, 173252       ; load the CPU's planes
+160344  012737 070045 177010  mov #70045, @#177010
+160352  016437 000042 177014  mov 42(r4), @#177014
+160360  005037 177716         clr @#177716
+160364  012700 000100         mov #100, r0
+160370  077001                sob r0, 160370       ; settle
+160372  012737 100000 177716  mov #100000, @#177716 ; release the CPU
+160400  004767 000004         jsr pc, 160410       ; checksum all four ROMs
 ```
 
-Within five instructions it tests **bit 4 of the system control register at
-177716**. The emulator has that register reading 0 at reset and shows the menu,
-so a machine that skips the menu plausibly reads that bit set — which would make
-this a hardware input, a strap or a connector pin, rather than anything to do
-with the ROM. Contemporary accounts fit: a student station booted straight from
-the network while a teacher's station offered the menu, and СТОП dropped a
-student station out to it.
+Two things in the previous version of this section were wrong and are corrected
+here. `100465` is **bmi**, not bpl. And bit 4 of 177716 is not a strap: writing
+177716 drives the central processor's control lines — bit 4 is **HALT**, bit 5
+DCLO, bit 15 ACLO — which is exactly what the sequence above is doing when it
+writes 40, then 0, then 100000. The bit-4 branch is a warm-restart hook that
+jumps through location 0 if one is set; it has nothing to do with the menu, and
+the guess that it explained the missing menu was wrong.
 
-Reading 177716 on the real machine is exactly what the test ROM is for, and it
-is the obvious next use of it: beacon the register's value out and compare
-against the emulator.
+### The board is not the problem
 
-Note also that option 7 is a diagnostic suite already present in the stock ROM.
-Worth seeing what it covers before writing more.
+Two independent arguments, neither of which needs the machine on a bench.
+
+**The menu text lives 40 bytes from text the machine already displays.** The
+ЗАГРУЗКА block is at 103116, and the УСТ settings text the user can reach sits
+immediately before it at 103040:
+
+```
+103040   ый|3 - выключен  |1 - включен |2 - выключен|..ЗАГРУЗКА.......
+103140  ...(0.3): 0.........(1,2): 1|1 - диск        |2 - кассета ПЗУ |
+103240  3 - сеть        |4 - стык С2     |5 - магнитофон  |6 - отладка
+103340  |7 - тестирование|...
+```
+
+Same chip, same window, same 128 bytes. A board that serves one and not the
+other is not a failure mode that exists.
+
+**The monitor checksums its own ROMs and is satisfied.** The routine at 160410
+sums each window as a ones'-complement sum and compares against four values
+mask-programmed into the top of the last chip; a mismatch prints `- ОШИБКА ПЗУ`.
+`tools/rom_checksum.py` runs that same algorithm on the images we serve:
+
+```
+$ ./tools/rom_checksum.py uknc_rom.bin
+160000..176774   3839 words  computed 103607  stored 103607  ok   208
+140000..157776   4096 words  computed 162125  stored 162125  ok   207
+120000..137776   4096 words  computed 133314  stored 133314  ok   206
+100000..117776   4096 words  computed 063160  stored 063160  ok   205 (DS4, ...)
+
+all four blocks pass: the monitor's own ROM test is happy with these images
+```
+
+Note the block boundaries: the machine's own test partitions the ROM exactly by
+chip window, so a failure names a chip. Flip one bit anywhere in the 205's
+window and only that line goes MISMATCH.
+
+So the missing menu is a decision the machine is making, not a byte it cannot
+read.
+
+### Asking the machine instead of guessing
+
+Which decision is still open, and inference has gone about as far as it usefully
+can. The board, though, sees every instruction the PP fetches — so it can be
+asked directly. `-DMPI_WATCH=ON` builds a firmware that scores a handful of
+monitor addresses and blinks the result; see [Which build to run](#which-build-to-run).
+
+The decisive one is **101000**, the `emt 44` whose inline argument points at the
+ЗАГРУЗКА string. If it hits, the menu was drawn and something happened to it
+afterwards, which makes this a display problem. If it does not, the machine
+branched away earlier and the search moves upstream. Either answer removes half
+the remaining possibilities, and it costs one reflash and a look at the LED.
+
+### What option 7 does
+
+Selecting 7 (тестирование) from the menu in the emulator gives a screen headed
+`Т Е С Т И Р О В А Н И Е` with `ПРОХОД:` and `ОШИБОК:` counters, and the pass
+counter increments — it is a continuously looping test with an error tally, not
+a one-shot report. That is a good model for our own suite: loop, count passes,
+count errors, and stay readable while running.
 
 ## Running your own code on the PP
 
@@ -265,6 +334,45 @@ Next, in rough order of usefulness: run the image in ukncbtl, which takes the
 same 32 KB file and costs nothing to be wrong in; teach the firmware to watch
 the beacon range and report on the status LED; then extend the suite outward
 into the I/O page and the channel to the central processor.
+
+### Getting a picture out of it
+
+Beacons are enough for a pass/fail, but not for a diagnostic anyone would want
+to read, and the obvious objection to a PP-side test suite is that the video
+memory belongs to the central processor. It turns out not to matter: the PP has
+its own port into it, and can draw the screen with the CPU held in reset.
+
+| port | what it is |
+| --- | --- |
+| `177010` | plane address register — a byte address into the 64 KB frame |
+| `177012` | plane 0 data — a byte written straight into the CPU's RAM |
+| `177014` | plane 1 & 2 data — low byte to plane 1, high byte to plane 2 |
+| `177016` | sprite colour |
+| `177020`/`177022` | background colour, planes 0–2, bits 0–3 and 4–7 |
+| `177024` | pixel byte: writes all three planes through the colour registers |
+| `177026` | plane mask |
+
+Write an address to 177010, then a byte to 177012, and a byte of plane 0 has
+changed. Three planes give eight colours; 177024 with the background registers
+loaded does all three in one write, which is how you fill an area quickly.
+
+The stock monitor uses exactly this, and its startup sequence is the worked
+example: the routine at 173252 sets 177010 to 70000 and streams 3839 words into
+177014, then walks a table of addresses writing 600 to each — all with the CPU
+held in DCLO reset from the `mov #40, @#177716` two instructions earlier. The
+screen is up before the central processor has executed anything.
+
+So the diagnostic can look like the stock one — a heading, a list of tests with
+results beside them, `ПРОХОД` and `ОШИБОК` counters — and the test patterns for
+setting up a monitor (greyscale ramp, colour bars, a border-to-border grid,
+convergence crosshatch) are simply fills through 177024. None of it needs a
+working CPU, a working keyboard, or a working disk, which is the point: it runs
+on a machine that is too broken to run anything else.
+
+The one thing to establish on hardware is the frame layout — where in the 64 KB
+the visible lines actually are, which on this machine is set by a line table
+rather than being a flat bitmap. The monitor's own drawing code is the reference
+for that, and `tools/pdp11dis.py` reads it.
 
 ## Prior art
 
@@ -393,6 +501,12 @@ cannot carry state across cycles.
 | `tools/diagnose_dump.py` | tells a bad dump from a bad chip |
 | `tools/selftest.py` | the self-test pattern, shared by generator and checker |
 | `tools/check_selftest.py` | diagnoses a dump of the self-test build |
+| `firmware/watch.h` | the watchpoint table for the `MPI_WATCH` build |
+| `tools/pdp11asm.py` | small PDP-11 assembler, for test ROMs |
+| `tools/pdp11dis.py` | small PDP-11 disassembler, for reading the stock ROM |
+| `tools/make_testrom.py` | builds a test ROM that replaces the system monitor |
+| `test/test_testrom.py` | runs that ROM in a model of the PP |
+| `tools/rom_checksum.py` | the machine's own ROM test, run offline |
 
 ### Diagnosing a dump
 
@@ -492,6 +606,35 @@ Keep `SOCKET_CS_CODE` at `03` for the DS4 socket. Ignoring CS made no difference
 to booting, but that only shows CE0 is irrelevant while the window holds the
 on-board ROM. It exists to say when the window belongs to RAM or a cartridge
 instead, and honouring it is what keeps the board off the bus then.
+
+### The diagnostic build
+
+```console
+$ cmake -S firmware -B firmware/build-watch -G Ninja -DMPI_WATCH=ON
+$ ninja -C firmware/build-watch
+```
+
+This serves the bus exactly as the normal build does — the scoring happens after
+the reply has been queued, so a watch build cannot introduce the timing fault it
+might be used to rule out — and repurposes the status LED to report which of a
+handful of monitor addresses the machine has executed since power-on.
+
+Each pass is one frame: **1.5 s dark**, then one pulse per watchpoint in table
+order, **long (0.6 s) for hit, short (0.12 s) for miss**, 0.4 s apart. Every
+watchpoint gets a pulse whether or not it hit, so a position can never be
+miscounted — the failure mode of any scheme that blinks only the hits. Nothing
+is ever cleared, so a frame that changes between passes is itself a fact.
+
+| pulse | address | a long pulse means |
+| --- | --- | --- |
+| 1 | 160300 | the monitor started from our vector — if this is short, stop, nothing else means anything |
+| 2 | 160450 | a ROM block failed its checksum: one of our four images is wrong |
+| 3 | 160530 | the PP RAM test found a fault |
+| 4 | 172764 | the monitor is printing an `- ОШИБКА ...` line |
+| 5 | 174152 | the startup test ran to completion |
+| 6 | 101000 | the boot menu header was printed |
+
+Edit `firmware/watch.h` to watch something else; the table is the interface.
 
 ## Building
 
@@ -745,7 +888,10 @@ project's `docs/VOLTAGE-LEVELS.md`.
   nRPLY generation are done in practice
 - [nzeemin/ukncbtl](https://github.com/nzeemin/ukncbtl) — the UKNC PP memory map
   and the port 177054 window gating, in
-  `emulator/emubase/Memory.cpp`, `CSecondMemoryController::UpdateMemoryMap()`
+  `emulator/emubase/Memory.cpp`, `CSecondMemoryController::UpdateMemoryMap()`;
+  the same file's `GetPortWord`/`SetPortWord` are the reference for the plane
+  ports 177010–177026 and for 177716 driving the CPU's HALT, DCLO and ACLO pins,
+  and `emulator/res/uknc_rom.bin` is the reference image
 - [RE-mulator](https://zx-pk.ru/threads/21519-re-mulyator-vnutriskhemnyj-emulyator-1801re2-1801rr1.html)
   — the existing DIP-24 1801RE2/RR1 in-circuit emulator
 - [Elektronika MS 0511](https://ru.wikipedia.org/wiki/Электроника_МС_0511) —

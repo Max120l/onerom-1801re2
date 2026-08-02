@@ -30,6 +30,7 @@
 #include "decode.h"
 #include "mpi_rom.pio.h"
 #include "rom_images.h"
+#include "watch.h"
 
 // The machine waits for our reply, so being slow costs wait states rather than
 // data -- but only up to the point where the read strobe has come and gone
@@ -66,6 +67,25 @@ static volatile uint32_t g_missed;
 
 static mpi_decode_t g_dec;
 static uint32_t g_window_store[MPI_MAX_WINDOWS][4096];
+
+#if MPI_WATCH
+// One bit per watchpoint, set by core 1 and read by core 0.  Set-only, so the
+// worst a race can do is delay a bit's appearance by one frame.
+static volatile uint32_t g_watch_hits;
+
+static const uint32_t g_watch_addr[] = MPI_WATCH_ADDRS;
+static_assert(count_of(g_watch_addr) <= MPI_WATCH_MAX, "too many watchpoints");
+
+// Called after the reply is queued, never before: a diagnostic build must not
+// change the timing of the thing it is measuring.
+static inline void __not_in_flash_func(watch_note)(uint32_t addr) {
+    for (unsigned i = 0; i < count_of(g_watch_addr); i++) {
+        if (addr == g_watch_addr[i]) {
+            g_watch_hits |= 1u << i;
+        }
+    }
+}
+#endif
 
 // Direction masks over the 24-bit GPIO field.
 static uint32_t g_dirs_ad, g_dirs_ad_rply;
@@ -190,9 +210,6 @@ static void __not_in_flash_func(serve_forever)(void) {
 
         uint32_t addr = mpi_address(&g_dec, snap);
         uint32_t pattern;
-        if (!mpi_lookup(&g_dec, addr, &pattern)) {
-            continue;       // not ours, or past the end of our window
-        }
         // Most window banking arrives for free: the CGM withholds the read
         // strobe, so we simply never hear a cycle we should not answer.  The
         // exception is the window whose socket carries a real CS, where the
@@ -201,12 +218,21 @@ static void __not_in_flash_func(serve_forever)(void) {
         // applying it to all of them would let one deasserted CE silence
         // windows it has no authority over.  Read live rather than from the
         // snapshot: it is sampled later in the cycle, the safe side to be on.
-        if (mpi_cs_gates((addr >> 13) & 7) && !mpi_enabled()) {
-            continue;
+        if (mpi_lookup(&g_dec, addr, &pattern)) {   // ours, and inside the window
+            if (!(mpi_cs_gates((addr >> 13) & 7) && !mpi_enabled())) {
+                pio_sm_put(g_pio, SM_RESPOND, pattern);
+                armed = true;
+                g_served++;
+            }
         }
-        pio_sm_put(g_pio, SM_RESPOND, pattern);
-        armed = true;
-        g_served++;
+
+#if MPI_WATCH
+        // Deliberately last: the reply is already on its way, so scoring costs
+        // the bus nothing.  Every cycle is offered, including ones we declined
+        // to answer -- an address we did not serve is exactly the kind of thing
+        // worth being able to see.
+        watch_note(addr);
+#endif
     }
 }
 
@@ -250,6 +276,28 @@ int main(void) {
     gpio_set_dir(GPIO_STATUS_LED, GPIO_OUT);
 
     multicore_launch_core1(serve_forever);
+
+#if MPI_WATCH
+    // Blink the watchpoint results out, one frame per pass: a long dark gap to
+    // mark the start, then one pulse per watchpoint in table order -- long for
+    // hit, short for miss.  Every watchpoint gets a pulse whether or not it hit,
+    // so positions cannot be miscounted, which is the failure mode of any
+    // scheme that blinks only the hits.
+    //
+    // Nothing is ever cleared: these are "did this ever happen since power-on"
+    // facts, and a frame that changes between passes is itself informative.
+    while (true) {
+        gpio_put(GPIO_STATUS_LED, STATUS_LED_OFF);
+        sleep_ms(1500);                                  // frame marker
+        uint32_t hits = g_watch_hits;
+        for (unsigned i = 0; i < count_of(g_watch_addr); i++) {
+            gpio_put(GPIO_STATUS_LED, STATUS_LED_ON);
+            sleep_ms((hits & (1u << i)) ? 600 : 120);
+            gpio_put(GPIO_STATUS_LED, STATUS_LED_OFF);
+            sleep_ms(400);
+        }
+    }
+#endif
 
     // Core 0 turns the served-cycle count into something visible.  Installed in
     // a machine that will not boot, the useful question is whether the board is
