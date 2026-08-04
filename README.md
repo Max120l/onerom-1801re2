@@ -502,6 +502,7 @@ cannot carry state across cycles.
 | `tools/selftest.py` | the self-test pattern, shared by generator and checker |
 | `tools/check_selftest.py` | diagnoses a dump of the self-test build |
 | `firmware/watch.h` | the watchpoint table for the `MPI_WATCH` build |
+| `test/test_watchpoints.py` | checks those watchpoints against the ROM |
 | `tools/pdp11asm.py` | small PDP-11 assembler, for test ROMs |
 | `tools/pdp11dis.py` | small PDP-11 disassembler, for reading the stock ROM |
 | `tools/make_testrom.py` | builds a test ROM that replaces the system monitor |
@@ -620,19 +621,60 @@ might be used to rule out — and repurposes the status LED to report which of a
 handful of monitor addresses the machine has executed since power-on.
 
 Each pass is one frame: **1.5 s dark**, then one pulse per watchpoint in table
-order, **long (0.6 s) for hit, short (0.12 s) for miss**, 0.4 s apart. Every
+order, **long (1 s) for hit, short (0.1 s) for miss**, 0.4 s apart. Every
 watchpoint gets a pulse whether or not it hit, so a position can never be
 miscounted — the failure mode of any scheme that blinks only the hits. Nothing
 is ever cleared, so a frame that changes between passes is itself a fact.
 
-| pulse | address | a long pulse means |
+| pulse | fetch of | a long pulse means |
 | --- | --- | --- |
-| 1 | 160300 | the monitor started from our vector — if this is short, stop, nothing else means anything |
-| 2 | 160450 | a ROM block failed its checksum: one of our four images is wrong |
-| 3 | 160530 | the PP RAM test found a fault |
-| 4 | 172764 | the monitor is printing an `- ОШИБКА ...` line |
-| 5 | 174152 | the startup test ran to completion |
-| 6 | 101000 | the boot menu header was printed |
+| 1 | 160302 after 160300 | the monitor started from our vector — if this is short, stop, nothing else means anything |
+| 2 | 160450 after 160446 | a ROM block failed its checksum: one of our four images is wrong |
+| 3 | 160532 after 160530 | the PP RAM test found a fault |
+| 4 | 172766 after 172764 | the monitor is printing an `- ОШИБКА ...` line |
+| 5 | 174154 after 174152 | the startup test ran to completion |
+| 6 | 101006 after 101004 | the boot menu header was printed |
+
+### Why each watchpoint is a pair
+
+The first version of this scored a single address, and on hardware it reported
+every watchpoint as hit. That was not a finding, it was a bug, and the reason is
+worth keeping: **the bus does not distinguish an instruction fetch from a data
+read**, and the startup test checksums all four ROMs — it reads 16127 of the
+16128 words, every watchpoint among them, within moments of power-on. "This
+address was read" is true of the entire ROM.
+
+What separates a fetch from a data read is the company it keeps. Straight-line
+execution reads consecutive words back to back; the checksum walks *downwards*
+and puts three fetches of its own loop body between every pair of data reads, so
+a data read of A is followed by 160434, never by A+2. The plane-copy loop at
+173270 ascends but does the same. So a watchpoint is two addresses — the one to
+score and the one that must have arrived immediately before it — and picking the
+second word of a multi-word instruction makes the predecessor its own first
+word, which holds whether the instruction was reached by fall-through or branch.
+
+`test/test_watchpoints.py` checks both halves against the ROM image: that each
+pair is really adjacent in the code, that the disassembly at the predecessor is
+what we think it is, and that neither ROM-scanning loop can forge the adjacency.
+It also reports what the old rule would have done, which is how the bug is kept
+fixed:
+
+```console
+$ python3 test/test_watchpoints.py uknc_rom.bin
+  160300 -> 160302  mov @#172660, r4         2 words  ok
+  160446 -> 160450  beq 160452               1 word   ok
+      (single word, falls through with no bus cycle)
+  ...
+no ROM-reading loop forges these adjacencies:
+  checksum (descending)    clear
+  plane copy (ascending)   clear
+
+under the old address-only rule the checksum alone would light 6 of 6 watchpoints
+```
+
+The pairing can only produce false negatives: another master interleaving a
+cycle, or a write landing between the two fetches, breaks the pair and loses a
+hit. A short pulse means "not seen", not "did not happen".
 
 Edit `firmware/watch.h` to watch something else; the table is the interface.
 

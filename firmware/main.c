@@ -73,17 +73,24 @@ static uint32_t g_window_store[MPI_MAX_WINDOWS][4096];
 // worst a race can do is delay a bit's appearance by one frame.
 static volatile uint32_t g_watch_hits;
 
-static const uint32_t g_watch_addr[] = MPI_WATCH_ADDRS;
-static_assert(count_of(g_watch_addr) <= MPI_WATCH_MAX, "too many watchpoints");
+static const mpi_watch_t g_watch[] = MPI_WATCH_PAIRS;
+static_assert(count_of(g_watch) <= MPI_WATCH_MAX, "too many watchpoints");
 
 // Called after the reply is queued, never before: a diagnostic build must not
 // change the timing of the thing it is measuring.
+//
+// A watchpoint scores only when its address arrives directly behind its
+// predecessor. That adjacency is what distinguishes executing the instruction
+// from the checksum reading it, and it is the whole reason this is useful --
+// see watch.h.
 static inline void __not_in_flash_func(watch_note)(uint32_t addr) {
-    for (unsigned i = 0; i < count_of(g_watch_addr); i++) {
-        if (addr == g_watch_addr[i]) {
+    static uint32_t prev = 0xFFFFFFFF;
+    for (unsigned i = 0; i < count_of(g_watch); i++) {
+        if (addr == g_watch[i].addr && prev == g_watch[i].prev) {
             g_watch_hits |= 1u << i;
         }
     }
+    prev = addr;
 }
 #endif
 
@@ -290,9 +297,12 @@ int main(void) {
         gpio_put(GPIO_STATUS_LED, STATUS_LED_OFF);
         sleep_ms(1500);                                  // frame marker
         uint32_t hits = g_watch_hits;
-        for (unsigned i = 0; i < count_of(g_watch_addr); i++) {
+        for (unsigned i = 0; i < count_of(g_watch); i++) {
             gpio_put(GPIO_STATUS_LED, STATUS_LED_ON);
-            sleep_ms((hits & (1u << i)) ? 600 : 120);
+            // 10:1. An earlier 5:1 against a 400 ms gap read as one steady
+            // blink; a pulse you have to time against its neighbours is not a
+            // measurement, it is a guess.
+            sleep_ms((hits & (1u << i)) ? 1000 : 100);
             gpio_put(GPIO_STATUS_LED, STATUS_LED_OFF);
             sleep_ms(400);
         }
