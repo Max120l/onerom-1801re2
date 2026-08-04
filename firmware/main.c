@@ -80,7 +80,33 @@ static_assert(count_of(g_watch) <= MPI_WATCH_MAX, "too many watchpoints");
 
 // Bus-side facts, in the same set-only style: see the enum in watch.h.
 static volatile uint32_t g_bus_hits;
-#define WATCH_PULSES (count_of(g_watch) + BUS_EVENT_COUNT)
+
+// One bit per word of each window, set as we serve it.  See watch.h.
+static uint32_t g_seen[MPI_COVERAGE_WINDOWS][4096 / 32];
+
+#define WATCH_PULSES \
+    (count_of(g_watch) + BUS_EVENT_COUNT + MPI_COVERAGE_WINDOWS)
+
+static inline void __not_in_flash_func(coverage_note)(uint32_t addr) {
+    unsigned w = ((addr >> 13) & 7) - MPI_COVERAGE_FIRST;
+    if (w < MPI_COVERAGE_WINDOWS) {
+        unsigned i = (addr >> 1) & 0xFFF;
+        g_seen[w][i >> 5] |= 1u << (i & 31);
+    }
+}
+
+// Has every word this window serves been asked for at least once?
+static bool coverage_complete(unsigned w) {
+    unsigned want = g_dec.window_words[w + MPI_COVERAGE_FIRST];
+    if (want == 0) {
+        return false;               // a window we do not serve cannot be covered
+    }
+    unsigned have = 0;
+    for (unsigned i = 0; i < count_of(g_seen[w]); i++) {
+        have += __builtin_popcount(g_seen[w][i]);
+    }
+    return have >= want;
+}
 
 // Called after the reply is queued, never before: a diagnostic build must not
 // change the timing of the thing it is measuring.
@@ -251,14 +277,10 @@ static void __not_in_flash_func(serve_forever)(void) {
                 pio_sm_put(g_pio, SM_RESPOND, pattern);
                 armed = true;
                 g_served++;
-            }
 #if MPI_WATCH
-            else {
-                // A word inside our window that we chose not to answer. If the
-                // machine's checksum of that window then disagrees, this is why.
-                g_bus_hits |= 1u << BUS_CS_DECLINED;
-            }
+                coverage_note(addr);    // after the put: never on the reply path
 #endif
+            }
         }
 
 #if MPI_WATCH
@@ -325,6 +347,11 @@ int main(void) {
         gpio_put(GPIO_STATUS_LED, STATUS_LED_OFF);
         sleep_ms(1500);                                  // frame marker
         uint32_t hits = g_watch_hits | (g_bus_hits << count_of(g_watch));
+        for (unsigned w = 0; w < MPI_COVERAGE_WINDOWS; w++) {
+            if (coverage_complete(w)) {
+                hits |= 1u << (count_of(g_watch) + BUS_EVENT_COUNT + w);
+            }
+        }
         for (unsigned i = 0; i < WATCH_PULSES; i++) {
             gpio_put(GPIO_STATUS_LED, STATUS_LED_ON);
             // 10:1. An earlier 5:1 against a 400 ms gap read as one steady

@@ -72,12 +72,14 @@
 //                        returns to -- and 101000 is the emt whose inline
 //                        argument points at the ЗАГРУЗКА string. A hit means
 //                        the boot menu header was printed.
+// Trimmed to the three that are still open. The PP RAM test (160532 after
+// 160530), the error printer (172766 after 172764) and the end of the startup
+// test (174154 after 174152) have all answered consistently -- RAM clean, no
+// error line, startup completes -- and every pulse spent re-confirming them is
+// a pulse the reader has to count past.
 #define MPI_WATCH_PAIRS { \
     { 0160302, 0160300 }, \
     { 0160450, 0160446 }, \
-    { 0160532, 0160530 }, \
-    { 0172766, 0172764 }, \
-    { 0174154, 0174152 }, \
     { 0101006, 0101004 }, \
 }
 #define MPI_WATCH_MAX   8
@@ -101,7 +103,6 @@ typedef struct {
 // They are appended to the LED frame after the code watchpoints, so the pulse
 // positions of the watchpoints do not move when these are added or removed.
 enum {
-    BUS_CS_DECLINED,        // a read in the CS-gated window went unanswered
     BUS_REPLY_UNTAKEN,      // a reply was prepared and the host never took it
 
     // Were we awake before the machine started asking?
@@ -122,5 +123,38 @@ enum {
 };
 
 #define PP_POWERUP_VECTOR  0160000
+
+// ---------------------------------------------------------------------------
+// Window coverage
+// ---------------------------------------------------------------------------
+//
+// The instrument has a blind spot, and it is exactly the size of the remaining
+// question. "We declined a read" and "a reply went untaken" both came back
+// negative, so we answer every read we are asked and the host takes every
+// answer -- and the machine still computes a bad checksum. That leaves two
+// possibilities, and one of them is invisible to any counter of cycles we saw:
+//
+//   the data is corrupted electrically between our pins and the processor, or
+//   some reads never reached us at all.
+//
+// The second is not far-fetched here. The read strobe on pin 1 is EDIN, which
+// the CGM withholds when a window is banked to RAM or a cartridge, so a read
+// directed elsewhere produces no strobe and no cycle for us to count. We would
+// see nothing and report nothing, while the processor happily summed whatever
+// did answer.
+//
+// Coverage closes it. The monitor's startup checksum reads every word of every
+// window exactly once, so after a completed startup each window we serve should
+// have had all of its words asked for. One bit per word, set as we serve it:
+//
+//   all four windows fully covered  ->  every word came from us, so the
+//                                       corruption is electrical
+//   a window short of its count     ->  reads for it went somewhere else, and
+//                                       that window is the failing block
+//
+// 4 KB of bitmap and three instructions off the reply path to answer a question
+// no amount of staring at the ROM contents can.
+#define MPI_COVERAGE_WINDOWS  4         // the four the UKNC's ROMs occupy
+#define MPI_COVERAGE_FIRST    4         // window index of 100000
 
 #endif // WATCH_H

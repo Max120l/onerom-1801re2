@@ -322,6 +322,22 @@ What settles it is a two-channel capture: **nRPLY on pin 2 against nDIN on pin
 is exonerated and the corruption is elsewhere. If it is not, the mechanism is
 confirmed and the assist is the fix. One capture decides it.
 
+### The reply line is exonerated
+
+A two-channel capture with the plain build — nRPLY on pin 2 against nDIN on pin
+1 — reads nRPLY 3.92 V peak, 39% high, against a clean 5.6 V nDIN. 3.92 V is
+3V3 plus a diode drop, so the pad clamp is conducting exactly as expected, but
+it is a comfortable TTL high and the machine reads it fine.
+
+The frame settles it more firmly than the waveform can. **Pulse 8 was short: no
+reply we prepared ever went untaken.** The handshake completes on every cycle.
+Whatever the reply line looks like, it is not breaking transfers, and the assist
+is not the fix. Ugly is not the same as broken.
+
+That frame — long on 1, 2 and 5, short on everything else — also puts the board
+in an odd position: we answer every read, on time, every reply is taken, startup
+runs to completion, and a ROM block still fails its checksum.
+
 ### The first assist program was wrong
 
 Flashed on hardware it made the machine worse — the screen never reached the
@@ -780,24 +796,36 @@ watchpoint gets a pulse whether or not it hit, so a position can never be
 miscounted — the failure mode of any scheme that blinks only the hits. Nothing
 is ever cleared, so a frame that changes between passes is itself a fact.
 
-| pulse | fetch of | a long pulse means |
+| pulse | | a long pulse means |
 | --- | --- | --- |
 | 1 | 160302 after 160300 | the monitor started from our vector — if this is short, stop, nothing else means anything |
-| 2 | 160450 after 160446 | a ROM block failed its checksum: one of our four images is wrong |
-| 3 | 160532 after 160530 | the PP RAM test found a fault |
-| 4 | 172766 after 172764 | the monitor is printing an `- ОШИБКА ...` line |
-| 5 | 174154 after 174152 | the startup test ran to completion |
-| 6 | 101006 after 101004 | the boot menu header was printed |
-| 7 | *(bus)* | a read inside one of our windows went unanswered because CS was deasserted |
-| 8 | *(bus)* | a reply was prepared and the host never took it |
-| 9 | *(bus)* | the first cycle we ever saw was the power-up vector fetch — we won the startup race |
+| 2 | 160450 after 160446 | a ROM block failed its checksum |
+| 3 | 101006 after 101004 | the boot menu header was printed |
+| 4 | *(bus)* | a reply was prepared and the host never took it |
+| 5 | *(bus)* | the first cycle we ever saw was the power-up vector fetch — we won the startup race |
+| 6 | *(bus)* | window 100000 fully covered: every word we serve there was asked for |
+| 7 | *(bus)* | window 120000 fully covered |
+| 8 | *(bus)* | window 140000 fully covered |
+| 9 | *(bus)* | window 160000 fully covered |
 
-Pulses 7 and 8 are what the board did rather than what the machine executed.
-They exist because the two disagreed: the monitor reported a ROM block failing
-its checksum while the same images pass that checksum offline, and those are the
-only two ways correct data becomes a wrong sum. Build the twin with
-`-DMPI_IGNORE_CS=ON` to answer every window unconditionally; if pulse 7 is long
-on one and pulse 2 goes short on the other, CS is the cause.
+The frame has been trimmed as questions closed. The PP RAM test, the error
+printer and the end of the startup test answered consistently — RAM clean, no
+error line, startup completes — and every pulse spent re-confirming a settled
+fact is one the reader has to count past. The CS pulse went with them: it never
+lit, so no read was ever declined, and `-DMPI_IGNORE_CS=ON` is moot.
+
+Pulses 6–9 exist because the instrument had a blind spot the size of the
+remaining question. With "we declined a read" and "a reply went untaken" both
+negative, we answer every read we are asked and the host takes every answer, and
+the machine *still* computes a bad checksum. Either the data is corrupted
+electrically between our pins and the processor, or some reads never reached us
+— and the second is invisible to any counter of cycles we saw, because the read
+strobe is EDIN and the CGM withholds it for a window banked elsewhere.
+
+The startup checksum reads every word of every window exactly once, so one bit
+per word settles it: all four windows covered means every word came from us and
+the corruption is electrical; a window short of its count means its reads went
+somewhere else, and that window is the failing block.
 
 ### Why each watchpoint is a pair
 
