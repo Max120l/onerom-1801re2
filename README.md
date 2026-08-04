@@ -843,6 +843,7 @@ is ever cleared, so a frame that changes between passes is itself a fact.
 | 5 | *(bus)* | the bus carried something other than what we drove |
 | 6 | *(bus)* | the first cycle of this boot was the power-up vector fetch — we won the startup race |
 | 7 | *(bus)* | all four windows fully covered: every word we serve was asked for |
+| 8–11 | *(bus)* | a 4-bit number, most significant first, naming the lowest AD line that read back wrong — **meaningless unless pulse 5 is lit** |
 
 **A frame describes one boot.** Hits were originally never cleared, which made a
 frame the union of every boot since the board was powered — and that ambiguity
@@ -851,6 +852,17 @@ checksum pulse was still lit from an earlier attempt. The frame now clears when
 the PP takes PC and PSW from its power-up vector, detected as the pair 160002
 directly behind 160000 so the checksum cannot forge it by reading those same two
 words on its way down.
+
+That clearing was got wrong once, in a way worth recording. It was first done on
+core 0, at the top of the next frame — which is up to ten seconds after the
+restart, by which time the machine has finished booting. The wipe therefore
+landed squarely on the startup evidence it existed to isolate, and the frame
+came back with the sanity pulse *short* while the "we saw this boot begin" pulse
+was long: a combination that cannot happen on a machine that is booting at all,
+since it says the monitor never ran while we watched it start. The reset now
+happens on core 1, two cycles into the new boot, and coverage is a generation
+tag rather than a bitmap precisely so that clearing it costs one increment
+instead of a 4 KB memset between two bus cycles.
 
 The frame has been trimmed as questions closed. The PP RAM test, the error
 printer and the end of the startup test answered consistently — RAM clean, no

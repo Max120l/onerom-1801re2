@@ -81,30 +81,58 @@ static_assert(count_of(g_watch) <= MPI_WATCH_MAX, "too many watchpoints");
 // Bus-side facts, in the same set-only style: see the enum in watch.h.
 static volatile uint32_t g_bus_hits;
 
-// One bit per word of each window, set as we serve it.  See watch.h.
-static uint32_t g_seen[MPI_COVERAGE_WINDOWS][4096 / 32];
+// Which boot each word of each window was last asked for in.  See watch.h.
+//
+// A generation tag rather than a bitmap that gets cleared, because the clearing
+// is the hard part: the frame has to be reset the instant the machine restarts,
+// and that instant is on core 1, between two bus cycles, where a 4 KB memset
+// does not fit. Bumping a counter does. It also makes the per-cycle write a
+// plain store instead of a read-modify-write.
+static uint16_t g_seen_gen[MPI_COVERAGE_WINDOWS][4096];
+// Starts at 1, not 0: the tag array is zero-initialised, so a generation of 0
+// would make every word of every window read as already covered before the
+// machine had asked for anything.
+static volatile uint16_t g_boot = 1;
+
+// Every AD line that has ever read back differently from what we drove.
+static volatile uint32_t g_mismatch;
+
+static const uint8_t g_ad_gpio[16] = AD_GPIO;
+
+// Lowest-numbered AD line in a mismatch mask.  A wrong bit is worth naming: it
+// points at one socket contact rather than at "the bus".
+static unsigned mismatch_ad_line(uint32_t mask) {
+    for (unsigned i = 0; i < 16; i++) {
+        if (mask & (1u << g_ad_gpio[i])) {
+            return i;
+        }
+    }
+    return 0;
+}
 
 // Coverage is one pulse, not four: all four windows came back complete on
-// hardware, so the reading that matters is now "still complete".
-#define WATCH_PULSES  (count_of(g_watch) + BUS_EVENT_COUNT + 1)
+// hardware, so the reading that matters is now "still complete".  The last four
+// are a binary number naming the offending AD line, and mean nothing unless the
+// mismatch pulse is lit.
+#define WATCH_PULSES  (count_of(g_watch) + BUS_EVENT_COUNT + 1 + 4)
 
 static inline void __not_in_flash_func(coverage_note)(uint32_t addr) {
     unsigned w = ((addr >> 13) & 7) - MPI_COVERAGE_FIRST;
     if (w < MPI_COVERAGE_WINDOWS) {
-        unsigned i = (addr >> 1) & 0xFFF;
-        g_seen[w][i >> 5] |= 1u << (i & 31);
+        g_seen_gen[w][(addr >> 1) & 0xFFF] = g_boot;
     }
 }
 
-// Has every word this window serves been asked for at least once?
+// Has every word this window serves been asked for during this boot?
 static bool coverage_complete(unsigned w) {
     unsigned want = g_dec.window_words[w + MPI_COVERAGE_FIRST];
     if (want == 0) {
         return false;               // a window we do not serve cannot be covered
     }
+    uint16_t boot = g_boot;
     unsigned have = 0;
-    for (unsigned i = 0; i < count_of(g_seen[w]); i++) {
-        have += __builtin_popcount(g_seen[w][i]);
+    for (unsigned i = 0; i < want; i++) {
+        have += (g_seen_gen[w][i] == boot);
     }
     return have >= want;
 }
@@ -116,10 +144,6 @@ static bool coverage_complete(unsigned w) {
 // predecessor. That adjacency is what distinguishes executing the instruction
 // from the checksum reading it, and it is the whole reason this is useful --
 // see watch.h.
-// Set by core 1 when the machine restarts, acted on by core 0 at the top of the
-// next frame.  Clearing 4 KB of bitmap has no business on core 1.
-static volatile bool g_restarted;
-
 static inline void __not_in_flash_func(watch_note)(uint32_t addr) {
     static uint32_t prev = 0xFFFFFFFF;
     static bool first = true;
@@ -130,7 +154,14 @@ static inline void __not_in_flash_func(watch_note)(uint32_t addr) {
             g_bus_hits |= 1u << BUS_FIRST_IS_VECTOR;
         }
     } else if (addr == PP_RESTART_ADDR && prev == PP_POWERUP_VECTOR) {
-        g_restarted = true;         // PC then PSW: the machine has restarted
+        // PC then PSW: the machine has restarted.  Reset the frame here and
+        // now, two cycles into the new boot -- deferring it to core 0 meant it
+        // landed at the top of the next frame, up to ten seconds later, wiping
+        // the whole startup sequence it was supposed to be reporting on.
+        g_boot++;
+        g_watch_hits = 0;
+        g_mismatch = 0;
+        g_bus_hits = 1u << BUS_FIRST_IS_VECTOR;   // we saw this boot begin
     }
     for (unsigned i = 0; i < count_of(g_watch); i++) {
         if (addr == g_watch[i].addr && prev == g_watch[i].prev) {
@@ -297,8 +328,10 @@ static void __not_in_flash_func(serve_forever)(void) {
                 // machine on a full FIFO.
                 if (!pio_sm_is_rx_fifo_empty(g_pio, SM_RESPOND)) {
                     uint32_t saw = pio_sm_get(g_pio, SM_RESPOND);
-                    if ((saw & g_dirs_ad) != (last_pattern & g_dirs_ad)) {
+                    uint32_t bad = (saw ^ last_pattern) & g_dirs_ad;
+                    if (bad) {
                         g_bus_hits |= 1u << BUS_DATA_MISMATCH;
+                        g_mismatch |= bad;
                     }
                 }
                 last_pattern = pattern;
@@ -369,15 +402,8 @@ int main(void) {
     while (true) {
         gpio_put(GPIO_STATUS_LED, STATUS_LED_OFF);
         sleep_ms(1500);                                  // frame marker
-        // One frame, one boot.  See PP_RESTART_ADDR in watch.h.
-        if (g_restarted) {
-            g_restarted = false;
-            g_watch_hits = 0;
-            memset(g_seen, 0, sizeof g_seen);
-            // We were listening when this boot began -- that is how we knew.
-            g_bus_hits = 1u << BUS_FIRST_IS_VECTOR;
-        }
-
+        // The frame is reset by core 1 the moment the machine restarts; here we
+        // only read it.  See PP_RESTART_ADDR in watch.h.
         uint32_t hits = g_watch_hits | (g_bus_hits << count_of(g_watch));
         bool covered = true;
         for (unsigned w = 0; w < MPI_COVERAGE_WINDOWS; w++) {
@@ -385,6 +411,13 @@ int main(void) {
         }
         if (covered) {
             hits |= 1u << (count_of(g_watch) + BUS_EVENT_COUNT);
+        }
+        // Trailing nibble: which AD line disagreed, most significant bit first.
+        unsigned line = mismatch_ad_line(g_mismatch);
+        for (unsigned b = 0; b < 4; b++) {
+            if (line & (1u << (3 - b))) {
+                hits |= 1u << (count_of(g_watch) + BUS_EVENT_COUNT + 1 + b);
+            }
         }
         for (unsigned i = 0; i < WATCH_PULSES; i++) {
             gpio_put(GPIO_STATUS_LED, STATUS_LED_ON);
