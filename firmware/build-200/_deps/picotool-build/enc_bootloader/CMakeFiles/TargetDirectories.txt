@@ -1,2 +1,0 @@
-/workspace/onerom-1801re2/firmware/build-200/_deps/picotool-build/enc_bootloader/CMakeFiles/edit_cache.dir
-/workspace/onerom-1801re2/firmware/build-200/_deps/picotool-build/enc_bootloader/CMakeFiles/rebuild_cache.dir

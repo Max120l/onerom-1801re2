@@ -1,5 +1,0 @@
-/workspace/onerom-1801re2/firmware/build-200/pioasm-install/pioasm/pioasm
-/workspace/onerom-1801re2/firmware/build-200/pioasm-install/pioasm/pioasmTargets.cmake
-/workspace/onerom-1801re2/firmware/build-200/pioasm-install/pioasm/pioasmTargets-release.cmake
-/workspace/onerom-1801re2/firmware/build-200/pioasm-install/pioasm/pioasmConfig.cmake
-/workspace/onerom-1801re2/firmware/build-200/pioasm-install/pioasm/pioasmConfigVersion.cmake

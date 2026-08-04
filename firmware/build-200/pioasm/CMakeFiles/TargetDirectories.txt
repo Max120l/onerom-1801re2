@@ -1,7 +1,0 @@
-/workspace/onerom-1801re2/firmware/build-200/pioasm/CMakeFiles/pioasm.dir
-/workspace/onerom-1801re2/firmware/build-200/pioasm/CMakeFiles/edit_cache.dir
-/workspace/onerom-1801re2/firmware/build-200/pioasm/CMakeFiles/rebuild_cache.dir
-/workspace/onerom-1801re2/firmware/build-200/pioasm/CMakeFiles/list_install_components.dir
-/workspace/onerom-1801re2/firmware/build-200/pioasm/CMakeFiles/install.dir
-/workspace/onerom-1801re2/firmware/build-200/pioasm/CMakeFiles/install/local.dir
-/workspace/onerom-1801re2/firmware/build-200/pioasm/CMakeFiles/install/strip.dir

@@ -1,1 +1,0 @@
-cmd='/usr/bin/cmake;--no-warn-unused-cli;-DCMAKE_MAKE_PROGRAM:FILEPATH=/usr/bin/ninja;-DPIOASM_FLAT_INSTALL=1;-DCMAKE_INSTALL_PREFIX=/workspace/onerom-1801re2/firmware/build-200/pioasm-install;-DCMAKE_RULE_MESSAGES=OFF;-DCMAKE_INSTALL_MESSAGE=NEVER;-GNinja;-C<TMP_DIR>/pioasmBuild-cache-$<CONFIG>.cmake;-S;<SOURCE_DIR><SOURCE_SUBDIR>;-B;<BINARY_DIR>'

@@ -9,3 +9,5 @@ firmware/build-assist/
 firmware/build-assist-plain/
 firmware/build-watch-200/
 firmware/build-ramtest/
+firmware/build-200/
+firmware/build-*/
