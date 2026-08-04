@@ -636,6 +636,110 @@ mode exists for: a fault present on pass 2 only must leave pass 3 reporting
 clean, because otherwise cooling the guilty chip looks identical to cooling an
 innocent one.
 
+### The strobes were a dead end, measured rather than assumed
+
+Six single-shot captures of RAS and CAS at the DRAM pins, in both states, and
+they cost three wrong conclusions before producing a right one. The waveform
+shapes changed between captures — CAS ramping in one, square in another — and
+each time the shape looked like the answer. It was not: those are **Single**
+captures of a signal whose content varies cycle to cycle, twelve cycles out of a
+continuous stream, and whichever cycle the trigger landed on is what you get.
+Two of the captures were relabelled mid-investigation, in opposite directions,
+and the "obvious" reading flipped with them both times.
+
+What settled it was picking a statistic instead of a shape. With CAS on CH1 so
+its Vrms is reported:
+
+| | healthy | failed |
+| --- | --- | --- |
+| CAS Vrms | 3.84 V | 3.92 V |
+| RAS | 2.38 MHz, 40.0%, 6.00 Vp-p | 2.38 MHz, 40.0%, 5.84 Vp-p |
+
+Two percent, running the wrong way for any story. **The strobes do not change
+when the machine fails.** Frequency and duty at that timebase are unusable —
+`Duty+: 100.0%` means the scope never found a falling edge on the ramp — which
+is its own lesson about which numbers on a cheap scope are load-bearing.
+
+The rule that would have saved all of it: take several captures in the *same*
+state before comparing states, so you know what normal variation looks like.
+
+## The address bus, and what it said
+
+Every bit of every plane failing at once is not a statement about chips. Nothing
+true of eight independent DRAMs in two separate banks is true of all of them in
+the same instant; what they share is the address bus and the strobes, and the
+strobes had just been ruled out.
+
+`tools/make_addrtest.py` asks the other question. Three passes over planes 1 and
+2, with the CPU held in reset:
+
+```console
+$ ./tools/make_addrtest.py -o addrtest.bin
+$ ./tools/gen_rom_images.py --logical addrtest.bin -o firmware/rom_images.c
+$ cmake -S firmware -B firmware/build-addr -G Ninja -DMPI_BEACONS=ON -DMPI_BEACON_COUNT=19
+```
+
+| pass | fill | sees |
+| --- | --- | --- |
+| 1 | every cell `0` | data lines stuck high |
+| 2 | every cell `177777` | data lines stuck low |
+| 3 | every cell its own index | addressing **and** data |
+
+The first two are structurally blind to addressing: every cell holds the same
+value, so a read that lands on the wrong cell still returns the right answer.
+That makes them a pure data-line test. The third is sensitive to both, and it
+carries more than pass/fail — with each cell holding its own address, whatever
+comes back **is the address of the cell that actually got selected**, so the XOR
+against what was asked for names the address bits that went wrong.
+
+Bits the constant passes implicated are masked out of the address report. A data
+line stuck at 0 differs from its index in that position too, and calling that an
+address fault would point at the wrong half of the board. `test/test_addrtest.py`
+holds it to that with a dead data bit, a dead address line, and both at once.
+
+| pulse | |
+| --- | --- |
+| 1 | alive |
+| 2 | pass finished |
+| 3 | **data lines bad** |
+| 4 | **addressing bad** |
+| 5–19 | plane index bit 0…14 |
+
+The machine's answer, warm:
+
+```
+l l s l   s l s l s l s l s l s l s l s
+    ^ ^   bits: 0 1 2 3 4 5 6 7 8 9 ...
+    | addressing bad
+    data lines clean
+```
+
+**Address bits 1, 3, 5, 7, 9, 11, 13 wrong; 0, 2, 4, 6, 8, 10, 12, 14 clean.**
+Every odd bit, no exceptions, with bit 15 outside the tested range.
+
+Two things follow immediately. The 24 DRAMs are exonerated — both constant passes
+read back perfectly, so every data line in both planes carries what it is given.
+And a perfectly alternating pattern is never four independent faults; it is one
+part. Which part depends on how the schematic maps the plane index onto the
+DRAMs' eight address pins:
+
+| if row/column is | then the failing bits are |
+| --- | --- |
+| index 0–7 / index 8–15 | pins **A1, A3, A5, A7** dead in both phases — one package, if the two multiplexers are split odd/even to shorten the routing |
+| even index / odd index | **the entire column address**, with the row address perfect |
+
+The second is the simpler failure, and it fits the rest: the column address is
+what gets latched on CAS, so a wrong column behind a clean CAS waveform is
+exactly the combination that was measured. A wrong column selects the wrong cell
+in all 24 chips at once — which is why all eight bit positions in all three
+planes go wrong together and immediately, and why the display falls to the
+uninitialised vertical lines at the same instant.
+
+One measurement separates them: probe a DRAM address pin with the fault present
+and watch whether it changes value between the RAS phase and the CAS phase. Pins
+that stop changing at column time, all of them, means the column half of the
+multiplexer; specific pins dead in both phases means those lines.
+
 ## Resolved
 
 With the chip on DC7 replaced, the plane test passes and the MS 0511 reaches the
