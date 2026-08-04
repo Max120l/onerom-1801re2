@@ -46,6 +46,23 @@ ENTRY = 0o160300
 BEACON = 0o077700                    # in PP RAM, above anything the test touches
 PLANE_WORDS = 0o100000               # 32768 byte addresses per plane
 
+# The same verdict, left in memory rather than blinked.
+#
+# Beacons are addresses on the bus, which is what the board can see but is
+# exactly what an emulator cannot show you without being modified. ukncbtl will
+# happily run this ROM -- it loads uknc_rom.bin from its working directory, 32256
+# bytes, the size of our images -- so the useful thing is a result you can read
+# in its memory view. Written after every test has finished, so the RAM walk
+# below cannot have clobbered it.
+RESULT = 0o077660                    # status bits, see RES_* below
+RESULT_MASK = 0o077662               # every plane bit that was ever wrong
+# Powers of two, and written as such. An earlier version set RES_DONE to a
+# Python 10 -- decimal ten, binary 1010 -- which overlapped RES_PLANE1_BAD, so a
+# healthy machine and one with a dead plane 1 reported the identical status
+# word. The test did not catch it because both sides of the comparison shared
+# the error, which is how a diagnostic ends up lying with confidence.
+RES_PP_RAM_OK, RES_PLANE1_BAD, RES_PLANE2_BAD, RES_DONE = 1, 2, 4, 8
+
 # Beacon numbers are the protocol; the firmware reads against this list.
 (B_ALIVE, B_PP_RAM_PASS, B_PP_RAM_FAIL, B_PLANE_PASS,
  B_PLANE1_FAIL, B_PLANE2_FAIL, B_DONE) = range(7)
@@ -61,6 +78,7 @@ def program(ram_top, plane_words):
 
         mov #{BEACON + 2 * B_ALIVE:o}, r1
         tst (r1)
+        clr r5
 
 ; ---- the PP's own RAM first, so a failure here is not mistaken for a plane
 ;      fault. Two passes: each word holds its address, then its complement, so
@@ -96,6 +114,7 @@ pc2:    mov r0, r2
 
         mov #{BEACON + 2 * B_PP_RAM_PASS:o}, r1
         tst (r1)
+        bis #{RES_PP_RAM_OK:o}, r5
         br planes
 
 ppbad:  mov #{BEACON + 2 * B_PP_RAM_FAIL:o}, r1
@@ -161,14 +180,20 @@ qbad:   mov r3, r2
         beq q1ok
         mov #{BEACON + 2 * B_PLANE1_FAIL:o}, r1
         tst (r1)
+        bis #{RES_PLANE1_BAD:o}, r5
 q1ok:   mov r3, r2
         bic #377, r2
         beq finish
         mov #{BEACON + 2 * B_PLANE2_FAIL:o}, r1
         tst (r1)
+        bis #{RES_PLANE2_BAD:o}, r5
 
-; ---- park, beaconing so the board can tell "finished" from "hung"
-finish: mov #{BEACON + 2 * B_DONE:o}, r1
+; ---- leave the verdict where a debugger or an emulator's memory view can read
+;      it, then park, beaconing so the board can tell "finished" from "hung"
+finish: bis #{RES_DONE:o}, r5
+        mov r5, @#{RESULT:o}
+        mov r3, @#{RESULT_MASK:o}
+        mov #{BEACON + 2 * B_DONE:o}, r1
 spin:   tst (r1)
         br spin
 """
@@ -204,6 +229,9 @@ def main() -> int:
     print(f"  power-up vector at {VECTOR:06o} -> {ENTRY:06o}")
     print(f"  beacons at {BEACON:06o}: 0=alive 1=PP RAM ok 2=PP RAM bad "
           f"3=planes ok 4=plane 1 bad 5=plane 2 bad 6=done")
+    print(f"  and in memory: {RESULT:06o} = status "
+          f"(1 PP RAM ok, 2 plane 1 bad, 4 plane 2 bad, 10 done, octal), "
+          f"{RESULT_MASK:06o} = bits ever wrong")
     return 0
 
 

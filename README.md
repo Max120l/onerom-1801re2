@@ -472,6 +472,57 @@ Results come back as beacons, and `-DMPI_BEACONS=ON` blinks them:
 | 6 | **plane 2 failed** |
 | 7 | finished |
 
+### Running it in the emulator, with no emulator changes
+
+ukncbtl needs no patching to run our ROMs. `Emulator_LoadUkncRom()` looks for a
+file called **`uknc_rom.bin` in its working directory** and loads exactly
+**32256 bytes** from it, falling back to the built-in resource only when the
+file is absent. 32256 is our image size exactly, so:
+
+```console
+$ cp ramtest.bin /path/to/ukncbtl/uknc_rom.bin
+```
+
+and the emulator boots the test ROM in place of the system ROM — the same
+substitution the board performs in hardware, for free.
+
+Reading the result there is the only gap, because beacons are *addresses on the
+bus*: precisely what the board can see and what an emulator cannot show without
+being modified. So the test also leaves its verdict in memory, written after
+every test has finished:
+
+| address | |
+| --- | --- |
+| `077660` | status: 1 PP RAM ok, 2 plane 1 bad, 4 plane 2 bad, 10 done (octal) |
+| `077662` | every plane bit that was ever wrong |
+
+A healthy machine parks with `077660` = **11** and `077662` = **0**. Open the
+memory view at 077660 and the answer is there, with no virtual LED to build.
+
+The status bits are powers of two, and are written that way after an earlier
+version set "done" to a Python `10` — decimal ten, binary 1010 — which
+overlapped the plane 1 bit, so a healthy machine and one with a dead plane
+reported the identical status word. The test did not catch it because both sides
+of the comparison shared the error, which is how a diagnostic ends up lying with
+confidence.
+
+### Drawing on the screen, when it is worth it
+
+The video path is now fully specified, and it is simpler than expected. The
+display is built from a **tag list in plane 0 starting at 0000270** — and plane
+0 is the PP's own RAM, so the PP writes the whole thing with ordinary MOV
+instructions, no ports involved. Each 2-word tag is `[addressBits, next]`, where
+`addressBits` is where that line's pixels live and the low bits of `next` say
+whether the following tag is the 4-word form that sets the palette or the scale.
+307 lines are walked; drawing starts at line 19.
+
+So a PP-side diagnostic can put a picture on screen using nothing but normal
+memory writes, with the central processor held in reset — which works
+identically in ukncbtl and on real hardware, and needs no LED and no beacons.
+That is the natural home for test names, `ПРОХОД`/`ОШИБОК` counters and the
+monitor test patterns. It is a real piece of work rather than a quick addition,
+and the memory verdict above answers the immediate question without it.
+
 `test/test_ramtest.py` runs the assembled image against a model of the PP with
 three planes behind the registers and the ability to break one bit of one
 plane, and checks that a healthy machine reports pass while a broken plane

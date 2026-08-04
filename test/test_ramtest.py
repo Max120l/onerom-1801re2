@@ -141,18 +141,24 @@ def beacon_set(pp):
     return sorted(set(pp.beacons))
 
 
-def run(label, broken, want):
+def status(pp):
+    """The verdict the test leaves in PP RAM, for a debugger or ukncbtl."""
+    a = make_ramtest.RESULT
+    return pp.ram[a] | (pp.ram[a + 1] << 8)
+
+
+def run(label, broken, want, want_status):
     rom, _ = make_ramtest.build(ram_top=RAM_TOP, plane_words=PLANE_WORDS)
     pp = PlanePP(rom, broken=broken)
     entry = rom[make_ramtest.VECTOR - ROM_BASE] | \
         (rom[make_ramtest.VECTOR - ROM_BASE + 1] << 8)
     state = pp.run(entry, None, limit=4_000_000)
-    got = beacon_set(pp)
-    ok = got == want and pp.cpu_held
+    got, st = beacon_set(pp), status(pp)
+    ok = got == want and pp.cpu_held and st == want_status
     print(f"  {label}")
-    print(f"    {state}, beacons {got}, CPU held: {pp.cpu_held}")
+    print(f"    {state}, beacons {got}, status {st:06o}, CPU held: {pp.cpu_held}")
     if not ok:
-        print(f"    FAIL: expected {want} with the CPU held")
+        print(f"    FAIL: expected {want}, status {want_status:06o}, CPU held")
     return not ok
 
 
@@ -161,11 +167,14 @@ def main() -> int:
     failures = 0
     print("plane RAM test:\n")
     failures += run("healthy machine", None,
-                    [B.B_ALIVE, B.B_PP_RAM_PASS, B.B_PLANE_PASS, B.B_DONE])
+                    [B.B_ALIVE, B.B_PP_RAM_PASS, B.B_PLANE_PASS, B.B_DONE],
+                    B.RES_PP_RAM_OK | B.RES_DONE)
     failures += run("plane 1 bit 3 stuck low", (1, 3),
-                    [B.B_ALIVE, B.B_PP_RAM_PASS, B.B_PLANE1_FAIL, B.B_DONE])
+                    [B.B_ALIVE, B.B_PP_RAM_PASS, B.B_PLANE1_FAIL, B.B_DONE],
+                    B.RES_PP_RAM_OK | B.RES_PLANE1_BAD | B.RES_DONE)
     failures += run("plane 2 bit 6 stuck low", (2, 6),
-                    [B.B_ALIVE, B.B_PP_RAM_PASS, B.B_PLANE2_FAIL, B.B_DONE])
+                    [B.B_ALIVE, B.B_PP_RAM_PASS, B.B_PLANE2_FAIL, B.B_DONE],
+                    B.RES_PP_RAM_OK | B.RES_PLANE2_BAD | B.RES_DONE)
     print("\n" + ("all checks passed" if not failures else f"{failures} failure(s)"))
     return 1 if failures else 0
 
