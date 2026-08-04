@@ -535,7 +535,7 @@ ourselves. Reading ROM is harmless; only the address matters.
 | 5 | **plane 1 failed** |
 | 6 | **plane 2 failed** |
 | 7 | finished |
-| 8 | *(spare)* |
+| 8 | **the bit was already wrong on an immediate reread** — dead, not leaky |
 | 9–16 | bit 0…7 of the failing plane's byte |
 
 ## The answer: plane 1
@@ -554,6 +554,28 @@ just well enough to paint a menu, depending on where the damage lands.
 It also explains why a bank tested out of circuit came back clean: plane 0 is
 the PP's own RAM, which the monitor tests and passes on every boot, and which
 this test passes too.
+
+On the second run, pulses 9–16 read short for bits 0–6 and **long for bit 7**:
+a single bit, and therefore a single column of the array — one chip, not the
+bank, not the supply, not a shared strobe.
+
+Pulse 8 separates the two ways one bit can be wrong. The test's first pass over
+the planes now writes a word and reads it straight back before anything else
+touches the array, in both polarities, and records what was already wrong at
+that moment. A bit wrong there cannot hold the value at all; a bit right there
+and wrong in the later passes held it and lost it. Dead chip against leaky one,
+which is what decides whether to suspect the part or its refresh — and, given
+the machine has been reported to worsen as it warms, worth reading cold and
+warm.
+
+Two details in that pass are load-bearing. Writing 177014 updates the register
+as well as the array, so reading it straight back returns what was just written
+and proves nothing; the address register has to be rewritten to re-latch the
+data registers from memory. And the pass needs the complement half, because
+writing the address as the data leaves the high byte counting only 0…127 over a
+32768-word plane, so bit 7 of plane 2 would never once be set — the test would
+have been structurally blind to exactly the kind of fault it just found, had it
+been in the other plane.
 
 Pulses 9–16 are the follow-up. The test already knew *which bits* — that is the
 mask it leaves at 077662 — it simply had no way to say so on hardware. Each

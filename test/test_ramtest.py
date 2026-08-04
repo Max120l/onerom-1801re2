@@ -36,17 +36,24 @@ class PlanePP(PP):
     which is what a dead RAM chip in one bank looks like from here.
     """
 
-    def __init__(self, rom, broken=None):
+    def __init__(self, rom, broken=None, leaky=False):
         super().__init__(rom)
         self.plane = [bytearray(PLANE_WORDS) for _ in range(3)]
         self.paddr = 0
         self.broken = broken
+        # A leaky bit holds its value only until something else is written --
+        # right on an immediate reread, wrong by the time a second pass comes
+        # round. A dead one is wrong straight away. The test has to tell them
+        # apart, so the model has to be able to be either.
+        self.leaky = leaky
+        self.last_written = None
         self.cpu_held = False
 
     def _plane_byte(self, p, addr):
         v = self.plane[p][addr]
         if self.broken and self.broken[0] == p:
-            v &= ~(1 << self.broken[1]) & 0xFF
+            if not self.leaky or addr != self.last_written:
+                v &= ~(1 << self.broken[1]) & 0xFF
         return v
 
     def read(self, addr):
@@ -79,6 +86,7 @@ class PlanePP(PP):
         if addr == 0o177014:
             self.plane[1][self.paddr] = value & 0xFF
             self.plane[2][self.paddr] = (value >> 8) & 0xFF
+            self.last_written = self.paddr
             return
         if addr == 0o177716:
             self.cpu_held = bool(value & 0o40)
@@ -198,9 +206,9 @@ def status(pp):
     return pp.ram[a] | (pp.ram[a + 1] << 8)
 
 
-def run(label, broken, want, want_status):
+def run(label, broken, want, want_status, leaky=False):
     rom, _ = make_ramtest.build(ram_top=RAM_TOP, plane_words=PLANE_WORDS)
-    pp = PlanePP(rom, broken=broken)
+    pp = PlanePP(rom, broken=broken, leaky=leaky)
     entry = rom[make_ramtest.VECTOR - ROM_BASE] | \
         (rom[make_ramtest.VECTOR - ROM_BASE + 1] << 8)
     state = pp.run(entry, None, limit=4_000_000)
@@ -254,12 +262,17 @@ def main() -> int:
                     B.RES_PP_RAM_OK | B.RES_DONE)
     failures += run("plane 1 bit 3 stuck low", (1, 3),
                     [B.B_ALIVE, B.B_PP_RAM_PASS, B.B_PLANE1_FAIL, B.B_DONE,
-                     B.B_BIT0 + 3],
-                    B.RES_PP_RAM_OK | B.RES_PLANE1_BAD | B.RES_DONE)
+                     B.B_STUCK, B.B_BIT0 + 3],
+                    B.RES_PP_RAM_OK | B.RES_PLANE1_BAD | B.RES_DONE | B.RES_STUCK)
+    failures += run("plane 1 bit 7 leaky: right at once, wrong later", (1, 7),
+                    [B.B_ALIVE, B.B_PP_RAM_PASS, B.B_PLANE1_FAIL, B.B_DONE,
+                     B.B_BIT0 + 7],
+                    B.RES_PP_RAM_OK | B.RES_PLANE1_BAD | B.RES_DONE,
+                    leaky=True)
     failures += run("plane 2 bit 6 stuck low", (2, 6),
                     [B.B_ALIVE, B.B_PP_RAM_PASS, B.B_PLANE2_FAIL, B.B_DONE,
-                     B.B_BIT0 + 6],
-                    B.RES_PP_RAM_OK | B.RES_PLANE2_BAD | B.RES_DONE)
+                     B.B_STUCK, B.B_BIT0 + 6],
+                    B.RES_PP_RAM_OK | B.RES_PLANE2_BAD | B.RES_DONE | B.RES_STUCK)
     print("\n" + ("all checks passed" if not failures else f"{failures} failure(s)"))
     return 1 if failures else 0
 

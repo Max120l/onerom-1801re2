@@ -82,10 +82,12 @@ RESULT_MASK = 0o077662               # every plane bit that was ever wrong
 # word. The test did not catch it because both sides of the comparison shared
 # the error, which is how a diagnostic ends up lying with confidence.
 RES_PP_RAM_OK, RES_PLANE1_BAD, RES_PLANE2_BAD, RES_DONE = 1, 2, 4, 8
+RES_STUCK = 16
+IMMEDIATE = 0o077664                 # bits that failed even on an instant reread
 
 # Beacon numbers are the protocol; the firmware reads against this list.
 (B_ALIVE, B_PP_RAM_PASS, B_PP_RAM_FAIL, B_PLANE_PASS,
- B_PLANE1_FAIL, B_PLANE2_FAIL, B_DONE, _B_SPARE) = range(8)
+ B_PLANE1_FAIL, B_PLANE2_FAIL, B_DONE, B_STUCK) = range(8)
 
 # Beacons 8..15 are the bit positions that came back wrong, one per bit of the
 # failing plane's byte. In a bank built from 1-bit-wide DRAM each bit is one
@@ -152,7 +154,49 @@ ppbad:  mov #{BEACON + 2 * B_PP_RAM_FAIL:o}, r1
 ;      earlier version ORed the two values in instead of their difference, which
 ;      set bits from perfectly good data and reported both planes bad whenever
 ;      either was.
+; ---- first, an immediate pass: write a word and read it straight back, before
+;      anything else has had a chance to touch the array. A bit that is already
+;      wrong here cannot hold the value at all; a bit that is right here and
+;      wrong in the passes below held it and then lost it. Dead chip versus
+;      leaky one, and the difference decides what to do about it.
+;
+;      Note the second write to 177010. Writing 177014 updates the register as
+;      well as the array, so reading it straight back returns what was just
+;      written and proves nothing; re-writing the address register re-latches
+;      the data registers from the memory itself.
 planes: clr r3
+
+        clr r0
+qi1:    mov r0, @#177010
+        mov r0, @#177014
+        mov r0, @#177010
+        mov @#177014, r4
+        xor r0, r4
+        bis r4, r3
+        inc r0
+        cmp r0, #{plane_words:o}
+        blo qi1
+
+;      ...and again with the complement. Writing the address as the data leaves
+;      the high byte only ever counting 0..127 over a 32768-word plane, so bit 7
+;      of plane 2 is never once set. The delayed passes cover it because the
+;      second of them writes the complement; the immediate pass needs the same
+;      treatment or it silently cannot see half of plane 2.
+        clr r0
+qi2:    mov r0, r2
+        com r2
+        mov r0, @#177010
+        mov r2, @#177014
+        mov r0, @#177010
+        mov @#177014, r4
+        xor r2, r4
+        bis r4, r3
+        inc r0
+        cmp r0, #{plane_words:o}
+        blo qi2
+
+        mov r3, @#{IMMEDIATE:o}
+        clr r3
 
         clr r0
 qf1:    mov r0, @#177010
@@ -233,9 +277,16 @@ bskip:  add #2, r1
         dec r0
         bne bloop
 
+; ---- was any of it already wrong the instant it was written?
+finish: tst @#{IMMEDIATE:o}
+        beq park
+        mov #{BEACON + 2 * B_STUCK:o}, r1
+        tst (r1)
+        bis #{RES_STUCK:o}, r5
+
 ; ---- leave the verdict where a debugger or an emulator's memory view can read
 ;      it, then park, beaconing so the board can tell "finished" from "hung"
-finish: bis #{RES_DONE:o}, r5
+park:   bis #{RES_DONE:o}, r5
         mov r5, @#{RESULT:o}
         mov r3, @#{RESULT_MASK:o}
         mov #{BEACON + 2 * B_DONE:o}, r1
@@ -287,7 +338,7 @@ def main() -> int:
     print(f"wrote {args.output}: {len(rom)} bytes, {len(code)} words of code")
     print(f"  power-up vector at {VECTOR:06o} -> {ENTRY:06o}")
     print(f"  beacons at {BEACON:06o}: 0=alive 1=PP RAM ok 2=PP RAM bad "
-          f"3=planes ok 4=plane 1 bad 5=plane 2 bad 6=done, "
+          f"3=planes ok 4=plane 1 bad 5=plane 2 bad 6=done 7=stuck, "
           f"{B_BIT0}..{B_BIT0 + 7}=failing bit 0..7")
     print(f"  and in memory: {RESULT:06o} = status "
           f"(1 PP RAM ok, 2 plane 1 bad, 4 plane 2 bad, 10 done, octal), "
