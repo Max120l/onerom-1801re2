@@ -124,7 +124,7 @@ static volatile unsigned g_fail_block;
 // its report rather than the stock monitor's behaviour.  One pulse per beacon.
 static volatile uint32_t g_beacons;
 #if MPI_BEACON_PASS
-#define WATCH_PULSES  (PP_BEACON_COUNT + 8)   // restarted, PP RAM, 6 vector bits
+#define WATCH_PULSES  (PP_BEACON_COUNT + 9)   // restarted, PP RAM, vector, drive
 #else
 #define WATCH_PULSES  PP_BEACON_COUNT
 #endif
@@ -160,6 +160,11 @@ static volatile bool g_saw_pp_ram;
 // high so they cannot be mistaken for a vector fetch.
 #define PP_VECTOR_PAGE  01000
 static volatile uint32_t g_trap_vec;
+// ...with its own flag, because 0 is a real answer. Testing g_trap_vec for
+// emptiness made a vector fetch of 0 indistinguishable from no fetch at all, so
+// the next address overwrote it -- exactly the case that matters, since a PC
+// gone to zero walks 0, 2, 4 in order and the first of those is the finding.
+static volatile bool g_trap_vec_seen;
 #endif
 #else
 #define WATCH_PULSES  (count_of(g_watch) + BUS_EVENT_COUNT + 1 + 2)
@@ -223,8 +228,9 @@ static inline void __not_in_flash_func(watch_note)(uint32_t addr) {
     // every strobe on the bus, so the read is visible anyway.
 #if MPI_BEACON_PASS
     if (addr < 0100000) {
-        if (addr < PP_VECTOR_PAGE && !g_trap_vec) {
+        if (addr < PP_VECTOR_PAGE && !g_trap_vec_seen) {
             g_trap_vec = addr;      // first vector fetch of this frame
+            g_trap_vec_seen = true;
         }
         g_saw_pp_ram = true;
     }
@@ -599,6 +605,26 @@ int main(void) {
         // and six pulses rather than sixteen because the top ten are always 0.
         uint32_t vec = g_trap_vec;
         g_trap_vec = 0;
+        g_trap_vec_seen = false;
+
+        // Did the bus carry what we drove?
+        //
+        // The response machine samples the AD lines at the instant it asserts
+        // the reply and compares them against the pattern it was given, so this
+        // is the one question that separates our drive from everything past our
+        // pads. It has been computed on every served cycle since the checksum
+        // investigation and never once put in front of anyone in beacon mode --
+        // which is where it belongs now that the PP is plainly reading things we
+        // did not send.
+        //
+        // Lit: the lines are not carrying what we drive, so it is electrical and
+        // on our side of the PP. Dark while the PP still misreads: it is being
+        // handed correct data and getting it wrong, which is the PP.
+        if (g_bus_hits & (1u << BUS_DATA_MISMATCH)) {
+            hits |= 1u << (PP_BEACON_COUNT + 8);
+            g_bus_hits &= ~(1u << BUS_DATA_MISMATCH);
+            g_mismatch = 0;
+        }
         for (unsigned b = 0; b < 6; b++) {
             if (vec & (2u << b)) {
                 hits |= 1u << (PP_BEACON_COUNT + 2 + b);
