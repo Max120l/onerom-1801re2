@@ -59,10 +59,23 @@ PLANE_WORDS = 0o100000               # 32768 byte addresses per plane
 
 # The beacon map. Deliberately not the soak's -- a frame that means something
 # different should not look the same.
-B_ALIVE, B_DONE, B_DATA_FAIL, B_ADDR_FAIL = 0, 1, 2, 3
-B_A0 = 4                             # ...through B_A0 + 14, address bits 0..14
+B_ALIVE, B_DONE, B_DATA_FAIL, B_ADDR_FAIL, B_REG_FAIL = 0, 1, 2, 3, 4
+B_A0 = 5                             # ...through B_A0 + 14, address bits 0..14
 ADDR_BITS = 15                       # the plane index is 15 bits: 0..77777
-BEACON_COUNT = B_A0 + ADDR_BITS      # 19
+BEACON_COUNT = B_A0 + ADDR_BITS      # 20
+
+# B_REG_FAIL closes a gap that everything else in this file quietly assumed shut.
+#
+# The PP names a cell by writing port 177010, and no test here has ever checked
+# that the register accepted what it was given. If 177010 itself drops bits, the
+# array is asked for the wrong cell and dutifully returns it -- identical
+# symptoms, and the DRAMs, their address lines and their multiplexer are all
+# innocent. One extra pass, and it separates "the address never got out of the
+# register" from "the address got out and the addressing mangled it".
+#
+# Read it cold first. If this pulse is lit on a machine that is otherwise
+# reporting clean, 177010 is not a readback register on this hardware and the
+# pulse means nothing -- there is no way to settle that from here.
 
 # Bit 15 is never exercised as data by the address pass, because the index it
 # writes only counts to 77777. That is not a gap: 15 bits is the whole plane.
@@ -76,6 +89,22 @@ def program(plane_words):
 
 soak:   mov #{BEACON + 2 * B_ALIVE:o}, r1
         tst (r1)
+
+; ---- pass 0: the plane address register itself.  Write an index, read it
+;      straight back, accumulate the difference in r5. This touches no memory at
+;      all, so it cannot be confused by anything downstream of the register --
+;      and if it fails, nothing downstream has been tested, because every other
+;      pass here asks for cells through this same register.
+        clr r5
+
+        clr r0
+rg:     mov r0, @#177010
+        mov @#177010, r4
+        xor r0, r4
+        bis r4, r5
+        inc r0
+        cmp r0, #{plane_words:o}
+        blo rg
 
 ; ---- pass 1: every cell zero.  r3 accumulates every bit that came back set,
 ;      which can only be a data line stuck high -- reading the wrong cell still
@@ -156,7 +185,15 @@ nodata: mov r2, r4
         mov #{BEACON + 2 * B_ADDR_FAIL:o}, r1
         tst (r1)
 
-noaddr: mov #{BEACON + 2 * B_A0:o}, r1
+; ---- and the register, reported last because it qualifies everything above:
+;      if this is lit, every other verdict in the frame was reached by asking for
+;      cells the array was never told about.
+noaddr: tst r5
+        beq noreg
+        mov #{BEACON + 2 * B_REG_FAIL:o}, r1
+        tst (r1)
+
+noreg:  mov #{BEACON + 2 * B_A0:o}, r1
         mov #{ADDR_BITS:o}, r0
 bloop:  bit #1, r4
         beq bskip
@@ -209,7 +246,8 @@ def main() -> int:
     print(f"  power-up vector at {VECTOR:06o} -> {ENTRY:06o}")
     print(f"  beacons at {BEACON:06o}, {BEACON_COUNT} of them:")
     print(f"    1 alive   2 done   3 data lines bad   4 addressing bad")
-    print(f"    5..{4 + ADDR_BITS} = address bit 0..{ADDR_BITS - 1}")
+    print(f"    5 plane address register (177010) bad")
+    print(f"    6..{5 + ADDR_BITS} = address bit 0..{ADDR_BITS - 1}")
     return 0
 
 

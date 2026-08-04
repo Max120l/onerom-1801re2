@@ -44,13 +44,20 @@ class PlanePP(_RamPlanePP):
     wrong index looking back at it.
     """
 
-    def __init__(self, rom, data_bit=None, data_plane=1, addr_bit=None):
+    def __init__(self, rom, data_bit=None, data_plane=1, addr_bit=None,
+                 reg_bit=None):
         super().__init__(rom)
         self.plane = [bytearray(PLANE_WORDS) for _ in range(3)]
         self.paddr = 0
         self.data_bit = data_bit
         self.data_plane = data_plane
         self.addr_bit = addr_bit
+        # A bit the plane address register at 177010 will not hold. Unlike
+        # addr_bit, this corrupts the address before anything sees it, so the
+        # readback is wrong *and* the wrong cell is selected -- which is the
+        # whole point: the two faults are indistinguishable downstream, and only
+        # reading the register apart from the array separates them.
+        self.reg_bit = reg_bit
         self.cpu_held = False
 
     def _cell(self):
@@ -83,6 +90,8 @@ class PlanePP(_RamPlanePP):
     def write(self, addr, value):
         addr &= 0xFFFE
         if addr == 0o177010:
+            if self.reg_bit is not None:
+                value &= ~(1 << self.reg_bit)
             self.paddr = value % PLANE_WORDS
             return
         if addr == 0o177012:
@@ -160,6 +169,15 @@ def main() -> int:
                     [B.B_ALIVE, B.B_DONE, B.B_DATA_FAIL, B.B_ADDR_FAIL,
                      B.B_A0 + 5],
                     addr_bit=5, data_bit=1)
+
+    # The gap this pass exists to close. A register that drops a bit and an
+    # address line that drops the same bit look identical from the array's side;
+    # only reading 177010 back tells them apart, so the register case must light
+    # a pulse the address case does not.
+    failures += run("plane address register drops bit 2",
+                    [B.B_ALIVE, B.B_DONE, B.B_ADDR_FAIL, B.B_REG_FAIL,
+                     B.B_A0 + 2],
+                    reg_bit=2)
 
     print("\n" + ("all checks passed" if not failures else f"{failures} failure(s)"))
     return 1 if failures else 0
