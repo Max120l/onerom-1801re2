@@ -69,6 +69,13 @@ target_compile_definitions(mpi_rom PRIVATE
     MPI_BEACONS=$<BOOL:${MPI_BEACONS}>
     MPI_BEACON_LIVE=$<BOOL:${MPI_BEACON_LIVE}>)
 
+# How many beacon pulses the frame blinks.  Different test ROMs have different
+# beacon maps: the soak uses 17, the address-bus test 19.  See watch.h.
+set(MPI_BEACON_COUNT "" CACHE STRING "Beacons in the frame (default 17)")
+if(MPI_BEACON_COUNT)
+    target_compile_definitions(mpi_rom PRIVATE PP_BEACON_COUNT=${MPI_BEACON_COUNT})
+endif()
+
 # System clock in kHz.  150000 is the RP2350's rated speed and the default; the
 # only reason to raise it is to shorten the address-to-reply path, which matters
 # only if replies are being assembled too late to be taken.

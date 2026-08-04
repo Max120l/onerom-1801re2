@@ -278,7 +278,19 @@ enum {
 // -DMPI_BEACONS=ON replaces the monitor watchpoints in the LED frame with one
 // pulse per beacon. Keep in step with tools/make_ramtest.py.
 #define PP_BEACON_BASE   0176700
+
+// How many beacons the frame blinks. The soak in tools/make_ramtest.py uses 17;
+// the address-bus test in tools/make_addrtest.py has a different map and a
+// different count, so this is overridable from CMake (-DMPI_BEACON_COUNT=19)
+// rather than being a number two ROMs have to agree on by luck.
+//
+// It only controls how many pulses come out. Getting it too small truncates the
+// frame; too large adds dark pulses at the end. Neither corrupts anything, but
+// both make the frame lie about which pulse is which, so set it to match the ROM
+// being flashed.
+#ifndef PP_BEACON_COUNT
 #define PP_BEACON_COUNT  17
+#endif
 
 // ---------------------------------------------------------------------------
 // Live mode, for freeze spray
@@ -299,6 +311,10 @@ enum {
 //   dark, blipping       the last pass was clean (the blip is one pass ending)
 //   fast flicker         no pass has finished in fifteen seconds -- the PP is
 //                        stuck, which is itself a symptom
+//
+// This is the soak's beacon map, not a universal one: the address-bus test puts
+// DONE at beacon 1. Live mode belongs to the soak; the address test wants the
+// ordinary latching frame, which is a verdict rather than a lamp.
 //
 // Pair it with an image from `make_ramtest.py --live`, which clears the ROM's
 // own accumulators at the top of each pass. Either half alone still latches:
