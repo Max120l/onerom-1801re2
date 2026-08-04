@@ -168,10 +168,42 @@ def run(label, broken, want, want_status):
     return not ok
 
 
+def check_shipped_defaults():
+    """The constants the flashed image actually uses.
+
+    The runs below deliberately use small bounds so the simulation finishes in
+    seconds -- which means they never touch the defaults, and a bad default
+    ships silently. That is exactly what happened: the RAM walk's upper bound
+    defaulted to the beacon address, and when the beacons moved into ROM the
+    walk followed them off the end of PP RAM into a region where a write gets no
+    reply. On hardware the machine wedged after the first beacon.
+    """
+    B = make_ramtest
+    bad = []
+    if B.PP_RAM_TOP > 0o100000:
+        bad.append(f"PP_RAM_TOP {B.PP_RAM_TOP:06o} is past the end of PP RAM")
+    if B.BEACON < 0o100000:
+        bad.append(f"BEACON {B.BEACON:06o} is not in ROM, so we may not see it")
+    if B.BEACON + 2 * 7 > 0o177000:
+        bad.append(f"beacons from {B.BEACON:06o} reach the I/O page")
+    if not (B.ENTRY < B.BEACON):
+        bad.append("the program overlaps its own beacons")
+    if B.PLANE_WORDS > 0o100000:
+        bad.append(f"PLANE_WORDS {B.PLANE_WORDS:06o} exceeds one plane")
+
+    print("shipped defaults:")
+    print(f"  PP_RAM_TOP {B.PP_RAM_TOP:06o}  BEACON {B.BEACON:06o}  "
+          f"PLANE_WORDS {B.PLANE_WORDS:06o}")
+    for b in bad:
+        print(f"      FAIL: {b}")
+    print("      ok" if not bad else "")
+    return bool(bad)
+
+
 def main() -> int:
     B = make_ramtest
-    failures = 0
-    print("plane RAM test:\n")
+    failures = check_shipped_defaults()
+    print("\nplane RAM test:\n")
     failures += run("healthy machine", None,
                     [B.B_ALIVE, B.B_PP_RAM_PASS, B.B_PLANE_PASS, B.B_DONE],
                     B.RES_PP_RAM_OK | B.RES_DONE)

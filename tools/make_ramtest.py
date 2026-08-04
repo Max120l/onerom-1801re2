@@ -57,6 +57,15 @@ ENTRY = 0o160300
 BEACON = 0o176700
 PLANE_WORDS = 0o100000               # 32768 byte addresses per plane
 
+# Where the PP's own RAM ends, for the walk below. Its own constant, and not
+# derived from anything else: it used to default to BEACON, which was fine while
+# the beacons lived in RAM and became a bug the moment they moved into ROM. The
+# walk then ran off the end of PP RAM into ROM, where a write gets no reply, the
+# PP traps through a vector the walk had just overwritten, and the machine
+# wedges after the first beacon. Two constants that happen to be equal are not
+# one constant.
+PP_RAM_TOP = 0o077600
+
 # The same verdict, left in memory rather than blinked.
 #
 # Beacons are addresses on the bus, which is what the board can see but is
@@ -210,10 +219,22 @@ spin:   tst (r1)
 """
 
 
-def build(ram_top=BEACON, plane_words=PLANE_WORDS):
+def build(ram_top=PP_RAM_TOP, plane_words=PLANE_WORDS):
     """Assemble the test.  The two sizes are arguments so that the simulator in
     test/test_ramtest.py can exercise the same code over a small memory in
     seconds; the image that gets flashed uses the real ones."""
+    # The sizes are parameters, so check them rather than trusting the caller --
+    # including the defaults, which are the ones that get flashed and the ones
+    # the scaled-down simulator run never exercises.
+    if ram_top > 0o100000:
+        raise SystemExit(f"ram_top {ram_top:06o} runs past the end of PP RAM")
+    if BEACON < 0o100000:
+        raise SystemExit(f"beacons at {BEACON:06o} are not in ROM")
+    if RESULT >= ram_top or RESULT_MASK >= ram_top:
+        pass          # the verdict is written after the walk, so overlap is fine
+    if plane_words > 0o100000:
+        raise SystemExit(f"plane_words {plane_words:06o} exceeds a plane")
+
     rom = bytearray(b"\x00" * ROM_BYTES)
 
     def put(addr, words):
