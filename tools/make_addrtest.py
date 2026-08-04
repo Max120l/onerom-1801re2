@@ -121,6 +121,19 @@ rg:     mov r0, @#177010
         cmp r0, #{plane_words:o}
         blo rg
 
+; ---- verdict now, not at the end of the pass.
+;      Everything here used to be reported together, after the index check --
+;      which meant a pass that wedged partway through threw away every finding
+;      that preceded it. On hardware that is not hypothetical: the PP hung in the
+;      index fill with the register pass long since complete, and the frame could
+;      not say whether 177010 had already been failing. A verdict withheld until
+;      the end is a verdict lost to anything that stops before it.
+        tst r5
+        beq r5ok
+        mov #{BEACON + 2 * B_REG_FAIL:o}, r1
+        tst (r1)
+r5ok:
+
 ; ---- pass 1: every cell zero.  r3 accumulates every bit that came back set,
 ;      which can only be a data line stuck high -- reading the wrong cell still
 ;      finds a zero in it.
@@ -145,6 +158,12 @@ z2:     mov r0, @#177010
         cmp r0, #{plane_words:o}
         blo z2
 
+        tst r3
+        beq r3ok1
+        mov #{BEACON + 2 * B_DATA_FAIL:o}, r1
+        tst (r1)
+r3ok1:
+
 ; ---- pass 2: every cell all ones.  Complement what comes back and accumulate,
 ;      so this catches the bits stuck low that pass 1 structurally cannot see.
         mov #{BEACON + 2 * B_PH_OFILL:o}, r1
@@ -166,6 +185,12 @@ o2:     mov r0, @#177010
         inc r0
         cmp r0, #{plane_words:o}
         blo o2
+
+        tst r3
+        beq r3ok2
+        mov #{BEACON + 2 * B_DATA_FAIL:o}, r1
+        tst (r1)
+r3ok2:
 
 ; ---- pass 3: every cell holds its own index.  Now the data in a cell names the
 ;      cell, so what comes back names whichever cell was really selected, and the
@@ -196,31 +221,17 @@ a2:     mov r0, @#177010
         cmp r0, #{plane_words:o}
         blo a2
 
-; ---- report.  Data first, because it qualifies the address answer.
-        tst r3
-        beq nodata
-        mov #{BEACON + 2 * B_DATA_FAIL:o}, r1
-        tst (r1)
-
 ; ---- an address bit is only reported if the same bit position survived both
 ;      constant passes. A data line stuck at 0 makes every read differ from its
 ;      index in that position too, and calling that an address fault would point
 ;      at the wrong half of the board.
-nodata: mov r2, r4
+        mov r2, r4
         bic r3, r4
         beq noaddr
         mov #{BEACON + 2 * B_ADDR_FAIL:o}, r1
         tst (r1)
 
-; ---- and the register, reported last because it qualifies everything above:
-;      if this is lit, every other verdict in the frame was reached by asking for
-;      cells the array was never told about.
-noaddr: tst r5
-        beq noreg
-        mov #{BEACON + 2 * B_REG_FAIL:o}, r1
-        tst (r1)
-
-noreg:  mov #{BEACON + 2 * B_A0:o}, r1
+noaddr: mov #{BEACON + 2 * B_A0:o}, r1
         mov #{ADDR_BITS:o}, r0
 bloop:  bit #1, r4
         beq bskip
