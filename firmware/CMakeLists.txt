@@ -40,6 +40,11 @@ target_compile_definitions(mpi_rom PRIVATE MPI_RPLY_ASSIST=$<BOOL:${MPI_RPLY_ASS
 # System clock in kHz.  150000 is the RP2350's rated speed and the default; the
 # only reason to raise it is to shorten the address-to-reply path, which matters
 # only if replies are being assembled too late to be taken.
+# Report our own test ROM's beacons on the LED instead of the stock monitor's
+# behaviour.  Pair with an image built by tools/make_ramtest.py.
+option(MPI_BEACONS "Blink the test ROM's beacons rather than watchpoints" OFF)
+target_compile_definitions(mpi_rom PRIVATE MPI_BEACONS=$<BOOL:${MPI_BEACONS}>)
+
 set(MPI_SYS_CLK_KHZ "" CACHE STRING "System clock in kHz (default 150000)")
 if(MPI_SYS_CLK_KHZ)
     target_compile_definitions(mpi_rom PRIVATE MPI_SYS_CLK_KHZ=${MPI_SYS_CLK_KHZ})

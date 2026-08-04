@@ -44,7 +44,7 @@ B_ALIVE, B_RAM_PASS, B_RAM_FAIL, B_DONE = 0, 1, 2, 3
 
 PROGRAM = f"""
 ; ---- we are executing, before anything else in the machine has run
-        mov #{BEACON + 2 * B_ALIVE}, r1
+        mov #{BEACON + 2 * B_ALIVE:o}, r1
         tst (r1)
 
 ; ---- PP RAM, pass 1: each word holds its own address.
@@ -54,14 +54,14 @@ PROGRAM = f"""
         clr r0
 fill1:  mov r0, (r0)
         add #2, r0
-        cmp r0, #{RAM_TOP}
+        cmp r0, #{RAM_TOP:o}
         blo fill1
 
         clr r0
 chk1:   cmp r0, (r0)
         bne ramfail
         add #2, r0
-        cmp r0, #{RAM_TOP}
+        cmp r0, #{RAM_TOP:o}
         blo chk1
 
 ; ---- PP RAM, pass 2: each word holds the complement of its address.
@@ -74,7 +74,7 @@ fill2:  mov r0, r2
         com r2
         mov r2, (r0)
         add #2, r0
-        cmp r0, #{RAM_TOP}
+        cmp r0, #{RAM_TOP:o}
         blo fill2
 
         clr r0
@@ -83,19 +83,19 @@ chk2:   mov r0, r2
         cmp r2, (r0)
         bne ramfail
         add #2, r0
-        cmp r0, #{RAM_TOP}
+        cmp r0, #{RAM_TOP:o}
         blo chk2
 
-        mov #{BEACON + 2 * B_RAM_PASS}, r1
+        mov #{BEACON + 2 * B_RAM_PASS:o}, r1
         tst (r1)
         br finish
 
 ramfail:
-        mov #{BEACON + 2 * B_RAM_FAIL}, r1
+        mov #{BEACON + 2 * B_RAM_FAIL:o}, r1
         tst (r1)
 
 ; ---- park, beaconing so the board can tell "finished" from "hung"
-finish: mov #{BEACON + 2 * B_DONE}, r1
+finish: mov #{BEACON + 2 * B_DONE:o}, r1
 spin:   tst (r1)
         br spin
 """

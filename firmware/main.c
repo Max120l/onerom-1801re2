@@ -109,7 +109,14 @@ static volatile unsigned g_fail_block;
 // The AD-line nibble that used to sit here is gone: the mismatch pulse has been
 // dark on every reading, so four pulses were being spent decoding a number that
 // was always zero. It comes back if that ever changes.
+#if MPI_BEACONS
+// Beacon mode: the ROM we are serving is our own diagnostic, so the frame is
+// its report rather than the stock monitor's behaviour.  One pulse per beacon.
+static volatile uint32_t g_beacons;
+#define WATCH_PULSES  PP_BEACON_COUNT
+#else
 #define WATCH_PULSES  (count_of(g_watch) + BUS_EVENT_COUNT + 1 + 2)
+#endif
 
 static inline void __not_in_flash_func(coverage_note)(uint32_t addr) {
     unsigned w = ((addr >> 13) & 7) - MPI_COVERAGE_FIRST;
@@ -160,6 +167,16 @@ static inline void __not_in_flash_func(watch_note)(uint32_t addr) {
         g_last_sum = CHK_SUM_LOW;
         g_bus_hits = 1u << BUS_FIRST_IS_VECTOR;   // we saw this boot begin
     }
+#if MPI_BEACONS
+    // A beacon is a read of a reserved PP RAM address.  We never serve those
+    // addresses -- they are below our windows -- but the capture machine sees
+    // every strobe on the bus, so the read is visible anyway.
+    uint32_t off = addr - PP_BEACON_BASE;
+    if (off < 2 * PP_BEACON_COUNT) {
+        g_beacons |= 1u << (off >> 1);
+    }
+#endif
+
     // The checksum's compare reads a different stored sum per block, directly
     // behind the fetch of the compare's second word.  Remember which.
     if (prev == CHK_CMP_EXT && addr >= CHK_SUM_LOW && addr <= CHK_SUM_LOW + 6) {
@@ -412,6 +429,9 @@ int main(void) {
     while (true) {
         gpio_put(GPIO_STATUS_LED, STATUS_LED_OFF);
         sleep_ms(1500);                                  // frame marker
+#if MPI_BEACONS
+        uint32_t hits = g_beacons;
+#else
         // The frame is reset by core 1 the moment the machine restarts; here we
         // only read it.  See PP_RESTART_ADDR in watch.h.
         uint32_t hits = g_watch_hits | (g_bus_hits << count_of(g_watch));
@@ -429,6 +449,7 @@ int main(void) {
                 hits |= 1u << (count_of(g_watch) + BUS_EVENT_COUNT + 1 + b);
             }
         }
+#endif
         for (unsigned i = 0; i < WATCH_PULSES; i++) {
             gpio_put(GPIO_STATUS_LED, STATUS_LED_ON);
             // 10:1. An earlier 5:1 against a 400 ms gap read as one steady

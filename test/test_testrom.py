@@ -71,6 +71,12 @@ class PP:
             a = self.r[reg]
             self.r[reg] = (self.r[reg] + 2) & 0xFFFF
             return a
+        if mode == 3:
+            # @(rn)+, which with rn = pc is the absolute form @#addr: the word
+            # inline after the instruction is the address to use.
+            a = self.read(self.r[reg])
+            self.r[reg] = (self.r[reg] + 2) & 0xFFFF
+            return a
         raise RuntimeError(f"addressing mode {mode} not modelled")
 
     def get(self, mode, reg):

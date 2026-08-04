@@ -212,6 +212,22 @@ enum {
 //
 //   176770 -> the 205, 100000-117777      176774 -> the 207, 140000-157777
 //   176772 -> the 206, 120000-137777      176776 -> the 208, 160000-176777
+// ---------------------------------------------------------------------------
+// Beacons, for when the ROM we serve is our own test program
+// ---------------------------------------------------------------------------
+//
+// A test ROM running on the PP has no console at reset, so it reports by
+// *reading* reserved addresses and letting us watch them go past. The beacons
+// sit at 077700 in PP RAM -- below our windows, so we never answer those reads,
+// but the capture machine latches every address strobe on the bus whether or
+// not the cycle is ours, so we see them anyway. Being the ROM and the
+// instrument at the same time is the one thing a mask ROM could never do.
+//
+// -DMPI_BEACONS=ON replaces the monitor watchpoints in the LED frame with one
+// pulse per beacon. Keep in step with tools/make_ramtest.py.
+#define PP_BEACON_BASE   0077700
+#define PP_BEACON_COUNT  8
+
 #define CHK_CMP_EXT     0160444     // second word of the compare
 #define CHK_SUM_LOW     0176770     // lowest of the four stored sums
 #define CHK_FAIL_ADDR   0160450     // "inc r0": this block did not match

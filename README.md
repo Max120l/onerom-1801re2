@@ -426,6 +426,73 @@ also intermittent: boots that print a CPU or CPU-RAM error with no
 monitor prints the ROM line whenever the mask is non-zero. So the next thing to
 establish is not *why* but *which* — see pulses 8–9.
 
+## Testing the central processor's RAM from the other side
+
+`- ОШИБКА ОЗУ ЦП` is the machine saying its central processor's memory is bad,
+and that is worth testing properly — which the stock test structurally cannot
+do. It runs **on** the central processor, using code that was itself copied
+into the memory under test. A fault there corrupts the tester before it can
+report on the testee, and every result it produces is suspect.
+
+The peripheral processor can do the job instead, and this matters more than it
+sounds because of how the memory is wired:
+
+**The central processor's RAM *is* planes 1 and 2.** Its word at address A is
+plane 1 byte A/2 in the low half and plane 2 byte A/2 in the high half — which
+is exactly the format of port 177014. So the PP can reach every location of it
+through the plane registers, with the central processor **held in reset**, and
+the two halves of what comes back name which plane is at fault.
+
+That last part is the useful bit. If a machine has three RAM banks and one of
+them is the PP's own (plane 0, which the monitor already tests and passes),
+then a `- ОШИБКА ОЗУ ЦП` points at the *other two* — and a bank that tests fine
+out of circuit may simply be the one that was never implicated.
+
+```console
+$ ./tools/make_ramtest.py -o ramtest.bin
+$ ./tools/gen_rom_images.py --logical ramtest.bin -o firmware/rom_images.c
+$ cmake -S firmware -B firmware/build-ramtest -G Ninja -DMPI_BEACONS=ON
+```
+
+The test holds the CPU in reset for its whole run, checks PP RAM first so a
+fault there is not mistaken for a plane fault, then walks both planes twice —
+each location holding its address and then the complement, so every bit takes
+both values everywhere. It accumulates the XOR of what came back against what
+went in, so the result holds exactly the bits that were ever wrong.
+
+Results come back as beacons, and `-DMPI_BEACONS=ON` blinks them:
+
+| pulse | |
+| --- | --- |
+| 1 | alive — the test is running |
+| 2 | PP RAM (plane 0) passed |
+| 3 | PP RAM failed |
+| 4 | **planes 1 and 2 passed** |
+| 5 | **plane 1 failed** |
+| 6 | **plane 2 failed** |
+| 7 | finished |
+
+`test/test_ramtest.py` runs the assembled image against a model of the PP with
+three planes behind the registers and the ability to break one bit of one
+plane, and checks that a healthy machine reports pass while a broken plane
+reports itself and not its neighbour. It earned its keep twice: the first
+version accumulated the OR of the observed and expected values rather than
+their difference, so it reported both planes bad whenever either was; and it
+caught the assembler bug below.
+
+### The assembler was reading octal as decimal
+
+`_num` used `int(tok, 0)` — Python's rules — so a bare `177716` was **decimal**,
+assembled as 133064, and the instruction meant to hold the CPU in reset wrote
+into the middle of the ROM instead. Nothing complained; the program was simply
+wrong. `make_testrom.py` had never noticed because it interpolates Python ints,
+which round-trip through decimal by luck.
+
+Bare numbers are now octal, as on any PDP-11, with `0x`/`0o`/`0b` prefixes and a
+trailing dot for decimal (`10.` is ten, `10` is eight). Both generators emit
+octal into their templates, and `test/test_testrom.py` still passes, which is
+what makes the change safe to have made.
+
 ## The machine's own verdict: ЦП, not ПЗУ
 
 With coverage instrumented, the frame came back long on 1, 2, 6 and 7 — and all
