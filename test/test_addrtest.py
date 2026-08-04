@@ -135,6 +135,29 @@ def run(label, want, **kw):
     return not ok
 
 
+def run_stop(label, want_passes, **kw):
+    """--stop-on-fail must stop, and only when something actually failed.
+
+    The frame it leaves behind is only worth reading if the loop really halts at
+    the first bad pass: one that kept going would go on accumulating, which is
+    the saturation this mode exists to avoid. Counting DONE beacons measures
+    exactly that -- one for a machine that stopped, more for one that did not.
+    """
+    rom, _ = make_addrtest.build(plane_words=PLANE_WORDS, stop_on_fail=True)
+    pp = PlanePP(rom, **kw)
+    entry = rom[make_addrtest.VECTOR - ROM_BASE] | \
+        (rom[make_addrtest.VECTOR - ROM_BASE + 1] << 8)
+    # Ask for three, so "stopped after one" and "ran to three" are both visible.
+    pp.run(entry, limit=4_000_000, passes=3)
+    got = pp.beacons.count(make_addrtest.B_DONE)
+    ok = got == want_passes
+    print(f"  {label}")
+    print(f"    completed passes: {got}")
+    if not ok:
+        print(f"    FAIL: expected {want_passes}")
+    return not ok
+
+
 def main() -> int:
     B = make_addrtest
     print("address-bus test:\n")
@@ -178,6 +201,11 @@ def main() -> int:
                     [B.B_ALIVE, B.B_DONE, B.B_ADDR_FAIL, B.B_REG_FAIL,
                      B.B_A0 + 2],
                     reg_bit=2)
+
+    print("\nstop-on-fail -- freeze at the first failing pass:\n")
+    failures += run_stop("healthy machine keeps looping", want_passes=3)
+    failures += run_stop("a fault stops it dead after one pass", want_passes=1,
+                         addr_bit=3)
 
     print("\n" + ("all checks passed" if not failures else f"{failures} failure(s)"))
     return 1 if failures else 0

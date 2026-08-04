@@ -81,7 +81,7 @@ BEACON_COUNT = B_A0 + ADDR_BITS      # 20
 # writes only counts to 77777. That is not a gap: 15 bits is the whole plane.
 
 
-def program(plane_words):
+def program(plane_words, stop_on_fail=False):
     return f"""
 ; ---- hold the central processor in reset for the whole test.  Bit 5 of 177716
 ;      is its DCLO pin; with it stopped, nothing but us touches the planes.
@@ -205,12 +205,38 @@ bskip:  add #2, r1
 
         mov #{BEACON + 2 * B_DONE:o}, r1
         tst (r1)
+{_stop(stop_on_fail)}
         jmp @#soak
 
 """
 
 
-def build(plane_words=PLANE_WORDS):
+def _stop(enabled):
+    """Freeze the frame at the first pass that fails anything.
+
+    Without this the frame is the union of every pass since power-on, which is
+    right for "did this machine ever fail" and useless for "what does the fault
+    look like when it arrives". On hardware it saturated: a partial failure of
+    the odd address bits, left running, eventually collapsed completely, and the
+    frame showed both at once with no way to tell which came first.
+
+    Stopping costs nothing, because a clean pass lights only ALIVE and DONE --
+    both lit anyway -- so the frozen frame is exactly the first failing pass and
+    nothing else. The LED keeps repeating it forever; a frame that stops changing
+    is the signal that this fired.
+    """
+    if not enabled:
+        return ""
+    return """
+        mov r3, r0
+        bis r2, r0
+        bis r5, r0
+        beq going
+stop:   br stop
+going:"""
+
+
+def build(plane_words=PLANE_WORDS, stop_on_fail=False):
     """Assemble the test.  plane_words is a parameter so the simulator can run
     the real code over a small memory; the flashed image uses the real size."""
     if plane_words > 0o100000:
@@ -229,7 +255,7 @@ def build(plane_words=PLANE_WORDS):
         rom[off:off + 2 * len(words)] = struct.pack(f"<{len(words)}H", *words)
 
     put(VECTOR, [ENTRY, 0o340])          # PC, PSW with interrupts masked
-    _, code = assemble(program(plane_words), ENTRY)
+    _, code = assemble(program(plane_words, stop_on_fail), ENTRY)
     put(ENTRY, code)
     return bytes(rom), code
 
@@ -238,9 +264,13 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("-o", "--output", type=Path, required=True)
+    ap.add_argument("--stop-on-fail", action="store_true",
+                    help="freeze the frame at the first failing pass, so it shows\n"
+                         "what the fault looks like on arrival rather than "
+                         "the union of everything that followed")
     args = ap.parse_args()
 
-    rom, code = build()
+    rom, code = build(stop_on_fail=args.stop_on_fail)
     args.output.write_bytes(rom)
     print(f"wrote {args.output}: {len(rom)} bytes, {len(code)} words of code")
     print(f"  power-up vector at {VECTOR:06o} -> {ENTRY:06o}")
