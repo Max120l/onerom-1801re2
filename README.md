@@ -366,6 +366,55 @@ instructions after the strobe while nRPLY alone is held high.
 The lesson generalises: an instrumented build has to be timing-identical to the
 one it is measuring, and OUT and SET see different pins.
 
+## The reply was arriving before the data
+
+With a per-boot frame that could be trusted, the picture became a contradiction:
+
+| pulse | | |
+| --- | --- | --- |
+| 1 | long | the monitor started from our vector |
+| 2 | **long** | **a ROM block failed its checksum** |
+| 4 | short | no reply went untaken |
+| 5 | short | the bus carried exactly what we drove, every cycle |
+| 6 | long | we were listening from the machine's first cycle |
+| 7 | long | all four windows fully covered |
+
+Every word came from us, every reply was taken, the wire carried what we sent —
+and the checksum still failed. When every measurement says the data is right and
+the processor says it is wrong, the measurements are answering the wrong
+question.
+
+They were. Look at what the response program did:
+
+```
+    out pindirs, 24     ; drive the AD lines
+    mov osr, y
+    out pindirs, 24     ; assert nRPLY -- handshake complete
+```
+
+**Two instructions. 13 ns at 150 MHz.** nRPLY is the slave saying *the data is
+on the lines*, and this program said it 13 ns after starting to drive sixteen
+lines into a capacitive 5 V bus — the same bus whose reply line was measured
+needing the better part of a microsecond to cross a threshold. The AD lines are
+no faster. The host was being invited to latch data that was still on its way.
+
+It fits every symptom exactly. A line already at the right level is correct
+immediately, so most words are fine and the machine runs; a word needing a long
+transition somewhere is not, so a sum over 16127 of them fails. The boot menu
+appears when the dice fall well and does not when they do not.
+
+And it explains why the readback saw nothing. That sample sat at the *end* of
+the cycle, after the host had released the strobe — the most forgiving instant
+there is, by which time every line has long settled. Pulse 5 was dark because it
+was measuring the wrong moment, not because the data was good.
+
+So both halves change. The program now waits ~430 ns after driving the lines
+before asserting the reply, and takes its readback **at the instant it asserts**
+— the earliest the host could latch, and therefore the only instant worth
+checking. Being late costs wait states rather than data, which is the whole
+reason a CPU-in-the-loop ROM is viable on this bus; 430 ns against a 2.4 µs
+cycle is margin bought at no real price.
+
 ## The machine's own verdict: ЦП, not ПЗУ
 
 With coverage instrumented, the frame came back long on 1, 2, 6 and 7 — and all

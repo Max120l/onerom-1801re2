@@ -49,8 +49,7 @@
 ;   X = AD lines as outputs, nRPLY still released
 ;   Y = X plus nRPLY as an output
 ;
-; Driving the AD lines one instruction before nRPLY gives the host data setup
-; time.  nRPLY is open-drain by construction: its output value is always 0, so
+; nRPLY is open-drain by construction: its output value is always 0, so
 ; enabling its direction pulls the line low and clearing the direction hands it
 ; back to the bus pull-up.  The line is never driven high.
 ;
@@ -70,12 +69,35 @@
     out pins, 24                ; present data (nRPLY bit is low but still hi-Z)
     mov osr, x
     out pindirs, 24             ; drive the AD lines
+    nop                    [31] ; and let them get there: 64 cycles, ~430 ns at
+    nop                    [31] ; 150 MHz. See the note below -- this is setup
+    in pins, 24                 ; what is actually on the lines at this instant
     mov osr, y
-    out pindirs, 24             ; assert nRPLY -- handshake complete
+    out pindirs, 24             ; assert nRPLY: the data is ready, and now it is
     wait 1 pin PIN_nDIN         ; host has taken the data
-    in pins, 24                 ; ...and what was actually on the lines
     irq nowait 0                ; flag a completed serve, for the CPU to see
 .wrap
+; Data setup time, which this program originally did not have.
+;
+; nRPLY is the slave saying "the data is on the lines". Asserting it two
+; instructions after starting to drive them -- 13 ns at 150 MHz -- says that
+; before it is true. Sixteen lines into a capacitive 5 V bus do not slew in
+; 13 ns; the reply line on this machine was measured needing the better part of
+; a microsecond to cross a threshold, and the AD lines are no faster. So the
+; host was being invited to latch data that was still on its way.
+;
+; It fits every symptom. Lines already at the right level are correct
+; immediately, so most words are fine; a word needing a long transition on some
+; line is not, so a checksum over 16127 of them fails while the machine still
+; runs. And it is invisible to a readback taken at the end of the cycle, which
+; is where this one used to sit -- by then everything has settled, which is why
+; the mismatch pulse stayed dark while the checksum kept failing.
+;
+; Hence both halves of this change: wait for the lines, then sample them at the
+; moment we assert the reply -- the earliest instant the host could latch, and
+; so the only instant worth checking. Being late costs wait states, which is the
+; whole reason a CPU-in-the-loop ROM works here; 430 ns against a bus cycle of
+; roughly 2.4 us is margin bought at no real price.
 
 ; ---------------------------------------------------------------------------
 ; Data response, with an assisted release of nRPLY
@@ -121,6 +143,8 @@
     out pins, 24                ; present data (nRPLY bit is low but still hi-Z)
     mov osr, x
     out pindirs, 24             ; drive the AD lines
+    nop                    [31] ; data setup, as in the plain program: the lines
+    nop                    [31] ; must be there before the reply says they are
     mov osr, y
     out pindirs, 24             ; assert nRPLY -- handshake complete
     wait 1 pin PIN_nDIN         ; host has taken the data

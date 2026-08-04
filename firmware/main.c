@@ -286,6 +286,25 @@ static void __not_in_flash_func(serve_forever)(void) {
     while (true) {
         uint32_t snap = pio_sm_get_blocking(g_pio, SM_CAPTURE);
 
+#if MPI_WATCH
+        // Drain the previous cycle's readback before queueing this one's
+        // pattern.  Order matters: the response machine samples the AD lines
+        // early now -- at the moment it asserts the reply, not at the end of the
+        // cycle -- so a readback checked *after* the put could be this cycle's,
+        // compared against last cycle's pattern, and report a mismatch that
+        // never happened.  Draining here, before the machine has been given
+        // anything to drive, makes that impossible.  It also has to happen every
+        // iteration regardless: autopush stalls the state machine on a full FIFO.
+        if (!pio_sm_is_rx_fifo_empty(g_pio, SM_RESPOND)) {
+            uint32_t saw = pio_sm_get(g_pio, SM_RESPOND);
+            uint32_t bad = (saw ^ last_pattern) & g_dirs_ad;
+            if (bad) {
+                g_bus_hits |= 1u << BUS_DATA_MISMATCH;
+                g_mismatch |= bad;
+            }
+        }
+#endif
+
         // The response machine raises IRQ_SERVED once the host has taken the
         // data, so a cycle that completed leaves it idle at its PULL with
         // nothing stale to carry forward -- no re-arm needed, which keeps the
@@ -320,20 +339,6 @@ static void __not_in_flash_func(serve_forever)(void) {
                 g_served++;
 #if MPI_WATCH
                 coverage_note(addr);    // after the put: never on the reply path
-
-                // The previous cycle's readback: what was actually on the AD
-                // lines when the host released the strobe, against what we
-                // asked the response machine to drive. Draining it every
-                // iteration is not optional -- autopush would stall the state
-                // machine on a full FIFO.
-                if (!pio_sm_is_rx_fifo_empty(g_pio, SM_RESPOND)) {
-                    uint32_t saw = pio_sm_get(g_pio, SM_RESPOND);
-                    uint32_t bad = (saw ^ last_pattern) & g_dirs_ad;
-                    if (bad) {
-                        g_bus_hits |= 1u << BUS_DATA_MISMATCH;
-                        g_mismatch |= bad;
-                    }
-                }
                 last_pattern = pattern;
 #endif
             }
