@@ -320,12 +320,23 @@ enum {
 // own accumulators at the top of each pass. Either half alone still latches:
 // the firmware would clear a mask the ROM keeps re-asserting, or the ROM would
 // forget a fault the firmware keeps displaying.
+// Which beacon marks the end of a pass. The soak puts it at 6, the address-bus
+// test at 1, so this is overridable (-DMPI_BEACON_DONE=1) for the same reason
+// the count is: two ROMs agreeing on a number by luck is how the lamp starts
+// reporting on a pass boundary that never happens.
+#ifndef PP_BEACON_DONE
 #define PP_BEACON_DONE   6
+#endif
 
 // Which beacons mean "this pass was not clean". Everything that is not one of
 // the four positive reports: PP RAM bad, either plane bad, stuck, all-bits-at-
 // once, and the eight per-bit pulses.
+// The soak's positive reports: alive, PP RAM ok, planes ok, done. Overridable
+// (-DMPI_BEACON_OK_MASK=3) because another ROM's map has different ones -- the
+// address-bus test's only good news is alive and done.
+#ifndef PP_BEACON_OK_MASK
 #define PP_BEACON_OK_MASK   ((1u << 0) | (1u << 1) | (1u << 3) | (1u << 6))
+#endif
 #define PP_BEACON_FAIL_MASK (((1u << PP_BEACON_COUNT) - 1u) & ~PP_BEACON_OK_MASK)
 
 #define CHK_CMP_EXT     0160444     // second word of the compare

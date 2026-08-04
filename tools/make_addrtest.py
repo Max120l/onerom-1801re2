@@ -62,7 +62,20 @@ PLANE_WORDS = 0o100000               # 32768 byte addresses per plane
 B_ALIVE, B_DONE, B_DATA_FAIL, B_ADDR_FAIL, B_REG_FAIL = 0, 1, 2, 3, 4
 B_A0 = 5                             # ...through B_A0 + 14, address bits 0..14
 ADDR_BITS = 15                       # the plane index is 15 bits: 0..77777
-BEACON_COUNT = B_A0 + ADDR_BITS      # 20
+
+# Phase markers, one per loop, lit on entry. These exist because the machine
+# found a way to fail that no verdict can describe: it wedged partway through a
+# pass and never reached the report at all, leaving the last good frame standing
+# and the test looking healthy while the screen sat frozen.
+#
+# A test that dies before it can speak is indistinguishable from a test with
+# nothing to say -- unless it says where it got to. Paired with a firmware built
+# -DMPI_BEACON_PASS=ON, which clears the frame on every DONE, the phases stop
+# advancing exactly where the PP stopped, and the last lit one names the loop.
+B_PH_REG = B_A0 + ADDR_BITS          # 20
+(B_PH_ZFILL, B_PH_ZCHK, B_PH_OFILL, B_PH_OCHK,
+ B_PH_AFILL, B_PH_ACHK) = range(B_PH_REG + 1, B_PH_REG + 7)
+BEACON_COUNT = B_PH_ACHK + 1         # 27
 
 # B_REG_FAIL closes a gap that everything else in this file quietly assumed shut.
 #
@@ -97,6 +110,8 @@ soak:   mov #{BEACON + 2 * B_ALIVE:o}, r1
 ;      pass here asks for cells through this same register.
         clr r5
 
+        mov #{BEACON + 2 * B_PH_REG:o}, r1
+        tst (r1)
         clr r0
 rg:     mov r0, @#177010
         mov @#177010, r4
@@ -111,6 +126,8 @@ rg:     mov r0, @#177010
 ;      finds a zero in it.
         clr r3
 
+        mov #{BEACON + 2 * B_PH_ZFILL:o}, r1
+        tst (r1)
         clr r0
 z1:     mov r0, @#177010
         clr @#177014
@@ -118,6 +135,8 @@ z1:     mov r0, @#177010
         cmp r0, #{plane_words:o}
         blo z1
 
+        mov #{BEACON + 2 * B_PH_ZCHK:o}, r1
+        tst (r1)
         clr r0
 z2:     mov r0, @#177010
         mov @#177014, r4
@@ -128,6 +147,8 @@ z2:     mov r0, @#177010
 
 ; ---- pass 2: every cell all ones.  Complement what comes back and accumulate,
 ;      so this catches the bits stuck low that pass 1 structurally cannot see.
+        mov #{BEACON + 2 * B_PH_OFILL:o}, r1
+        tst (r1)
         clr r0
 o1:     mov r0, @#177010
         mov #177777, @#177014
@@ -135,6 +156,8 @@ o1:     mov r0, @#177010
         cmp r0, #{plane_words:o}
         blo o1
 
+        mov #{BEACON + 2 * B_PH_OCHK:o}, r1
+        tst (r1)
         clr r0
 o2:     mov r0, @#177010
         mov @#177014, r4
@@ -153,6 +176,8 @@ o2:     mov r0, @#177010
 ;      second fill overwrites the first, and the check sees it.
         clr r2
 
+        mov #{BEACON + 2 * B_PH_AFILL:o}, r1
+        tst (r1)
         clr r0
 a1:     mov r0, @#177010
         mov r0, @#177014
@@ -160,6 +185,8 @@ a1:     mov r0, @#177010
         cmp r0, #{plane_words:o}
         blo a1
 
+        mov #{BEACON + 2 * B_PH_ACHK:o}, r1
+        tst (r1)
         clr r0
 a2:     mov r0, @#177010
         mov @#177014, r4
@@ -278,6 +305,8 @@ def main() -> int:
     print(f"    1 alive   2 done   3 data lines bad   4 addressing bad")
     print(f"    5 plane address register (177010) bad")
     print(f"    6..{5 + ADDR_BITS} = address bit 0..{ADDR_BITS - 1}")
+    print(f"    {B_PH_REG + 1}..{B_PH_ACHK + 1} = phase reached: "
+          f"register, fill 0, check 0, fill 1s, check 1s, fill addr, check addr")
     return 0
 
 

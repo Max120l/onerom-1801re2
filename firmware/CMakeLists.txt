@@ -54,6 +54,18 @@ option(MPI_BEACONS "Blink the test ROM's beacons rather than watchpoints" OFF)
 # spray, where a latching frame can only ever say "it failed at some point".
 # See PP_BEACON_DONE in watch.h.  Pair with `make_ramtest.py --live`.
 option(MPI_BEACON_LIVE "Report only the most recent test pass" OFF)
+
+# Same clear-on-DONE, but keep the full frame instead of reducing it to a lamp.
+# For a test that can wedge partway through a pass: the frame then freezes
+# showing exactly the phases it reached, which a latching frame cannot say and
+# a lamp has no room to.
+option(MPI_BEACON_PASS "Blink the current pass's frame, cleared each pass" OFF)
+if(MPI_BEACON_PASS AND NOT MPI_BEACONS)
+    message(STATUS "MPI_BEACON_PASS implies MPI_BEACONS; enabling it")
+    set(MPI_BEACONS ON)
+endif()
+target_compile_definitions(mpi_rom PRIVATE MPI_BEACON_PASS=$<BOOL:${MPI_BEACON_PASS}>)
+
 if(MPI_BEACON_LIVE AND NOT MPI_BEACONS)
     message(STATUS "MPI_BEACON_LIVE implies MPI_BEACONS; enabling it")
     set(MPI_BEACONS ON)
@@ -74,6 +86,18 @@ target_compile_definitions(mpi_rom PRIVATE
 set(MPI_BEACON_COUNT "" CACHE STRING "Beacons in the frame (default 17)")
 if(MPI_BEACON_COUNT)
     target_compile_definitions(mpi_rom PRIVATE PP_BEACON_COUNT=${MPI_BEACON_COUNT})
+endif()
+
+# Which beacon ends a pass, and which beacons are good news.  Only used by
+# MPI_BEACON_LIVE, and only correct for the ROM being flashed: the soak says
+# 6 and 0x4B, the address-bus test says 1 and 0x3.
+set(MPI_BEACON_DONE "" CACHE STRING "Beacon marking end of pass (default 6)")
+if(MPI_BEACON_DONE STRGREATER "")
+    target_compile_definitions(mpi_rom PRIVATE PP_BEACON_DONE=${MPI_BEACON_DONE})
+endif()
+set(MPI_BEACON_OK_MASK "" CACHE STRING "Bitmask of non-failure beacons")
+if(MPI_BEACON_OK_MASK)
+    target_compile_definitions(mpi_rom PRIVATE PP_BEACON_OK_MASK=${MPI_BEACON_OK_MASK})
 endif()
 
 # System clock in kHz.  150000 is the RP2350's rated speed and the default; the

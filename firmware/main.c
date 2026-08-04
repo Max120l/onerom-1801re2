@@ -53,8 +53,11 @@
 // The CMake option resolves this, but a hand-rolled -D would not, and the
 // failure would be a firmware that compiles and reports nothing -- which is the
 // exact shape of the MPI_BEACONS-without-MPI_WATCH bug, already made once.
-#if MPI_BEACON_LIVE && !MPI_BEACONS
-#error "MPI_BEACON_LIVE needs MPI_BEACONS (and MPI_WATCH); use the CMake option"
+#if (MPI_BEACON_LIVE || MPI_BEACON_PASS) && !MPI_BEACONS
+#error "MPI_BEACON_LIVE/MPI_BEACON_PASS need MPI_BEACONS; use the CMake options"
+#endif
+#if MPI_BEACON_LIVE && MPI_BEACON_PASS
+#error "MPI_BEACON_LIVE and MPI_BEACON_PASS are two readings of one LED"
 #endif
 
 #define SM_CAPTURE  0
@@ -121,7 +124,7 @@ static volatile unsigned g_fail_block;
 // its report rather than the stock monitor's behaviour.  One pulse per beacon.
 static volatile uint32_t g_beacons;
 #define WATCH_PULSES  PP_BEACON_COUNT
-#if MPI_BEACON_LIVE
+#if MPI_BEACON_LIVE || MPI_BEACON_PASS
 // The last completed pass, and a counter so core 0 can tell a new verdict from
 // a repeat of the old one.  See PP_BEACON_DONE in watch.h.
 static volatile uint32_t g_beacons_last;
@@ -191,7 +194,7 @@ static inline void __not_in_flash_func(watch_note)(uint32_t addr) {
     if (off < 2 * PP_BEACON_COUNT) {
         unsigned b = off >> 1;
         g_beacons |= 1u << b;
-#if MPI_BEACON_LIVE
+#if MPI_BEACON_LIVE || MPI_BEACON_PASS
         // End of a pass: publish it and start the next one empty. Done here
         // rather than on core 0 so the snapshot and the clear cannot be split
         // by a pass boundary, which would drop a whole pass's verdict.

@@ -45,7 +45,7 @@ class PlanePP(_RamPlanePP):
     """
 
     def __init__(self, rom, data_bit=None, data_plane=1, addr_bit=None,
-                 reg_bit=None):
+                 reg_bit=None, wedge_on_ones=False):
         super().__init__(rom)
         self.plane = [bytearray(PLANE_WORDS) for _ in range(3)]
         self.paddr = 0
@@ -58,6 +58,13 @@ class PlanePP(_RamPlanePP):
         # whole point: the two faults are indistinguishable downstream, and only
         # reading the register apart from the array separates them.
         self.reg_bit = reg_bit
+        # The failure mode the phase markers exist for: the PP stops executing
+        # partway through a pass -- hung on a cycle that never gets a reply, or
+        # trapped through a vector holding garbage -- and never reaches the
+        # report. Every verdict beacon stays dark, which is indistinguishable
+        # from a clean machine unless something says how far it got.
+        self.wedge_on_ones = wedge_on_ones
+        self.wedged = False
         self.cpu_held = False
 
     def _cell(self):
@@ -98,6 +105,8 @@ class PlanePP(_RamPlanePP):
             self.plane[0][self._cell()] = value & 0xFF
             return
         if addr == 0o177014:
+            if self.wedge_on_ones and value == 0xFFFF:
+                self.wedged = True
             self.plane[1][self._cell()] = value & 0xFF
             self.plane[2][self._cell()] = (value >> 8) & 0xFF
             return
@@ -110,6 +119,8 @@ class PlanePP(_RamPlanePP):
         self.r[7] = entry
         done = 0
         for _ in range(limit):
+            if self.wedged:
+                return "wedged"
             before = self.beacons.count(make_addrtest.B_DONE)
             if not self.step():
                 return "halted"
@@ -120,6 +131,12 @@ class PlanePP(_RamPlanePP):
         return "ran out of steps"
 
 
+PHASES = [make_addrtest.B_PH_REG, make_addrtest.B_PH_ZFILL,
+          make_addrtest.B_PH_ZCHK, make_addrtest.B_PH_OFILL,
+          make_addrtest.B_PH_OCHK, make_addrtest.B_PH_AFILL,
+          make_addrtest.B_PH_ACHK]
+
+
 def run(label, want, **kw):
     rom, _ = make_addrtest.build(plane_words=PLANE_WORDS)
     pp = PlanePP(rom, **kw)
@@ -127,6 +144,10 @@ def run(label, want, **kw):
         (rom[make_addrtest.VECTOR - ROM_BASE + 1] << 8)
     state = pp.run(entry)
     got = sorted(set(pp.beacons))
+    # Every complete pass lights all seven phase markers, so they belong in every
+    # expectation rather than being repeated in each case. What makes them worth
+    # having is a pass that does NOT complete -- see run_phases below.
+    want = list(want) + PHASES
     ok = got == sorted(want) and pp.cpu_held
     print(f"  {label}")
     print(f"    {state}, beacons {got}, CPU held: {pp.cpu_held}")
@@ -201,6 +222,25 @@ def main() -> int:
                     [B.B_ALIVE, B.B_DONE, B.B_ADDR_FAIL, B.B_REG_FAIL,
                      B.B_A0 + 2],
                     reg_bit=2)
+
+    # The whole reason the phase markers exist. A PP that stops partway through
+    # leaves every verdict beacon dark, so the frame of a wedged machine and the
+    # frame of a healthy one are the same -- except for how far the phases got.
+    print("\nphase markers -- a pass that never finishes:\n")
+    rom, _ = B.build(plane_words=PLANE_WORDS)
+    pp = PlanePP(rom, wedge_on_ones=True)
+    entry = rom[B.VECTOR - ROM_BASE] | (rom[B.VECTOR - ROM_BASE + 1] << 8)
+    state = pp.run(entry)
+    got = sorted(set(pp.beacons))
+    want = sorted([B.B_ALIVE, B.B_PH_REG, B.B_PH_ZFILL, B.B_PH_ZCHK,
+                   B.B_PH_OFILL])
+    print(f"  PP wedges during the all-ones fill")
+    print(f"    {state}, beacons {got}")
+    if got != want:
+        print(f"    FAIL: expected {want}")
+        failures += 1
+    else:
+        print(f"    last phase reached is {B.B_PH_OFILL + 1}, and DONE is dark")
 
     print("\nstop-on-fail -- freeze at the first failing pass:\n")
     failures += run_stop("healthy machine keeps looping", want_passes=3)
