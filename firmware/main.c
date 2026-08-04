@@ -524,7 +524,28 @@ int main(void) {
         }
         seen_served = g_served;
 #if MPI_BEACONS
+#if MPI_BEACON_PASS
+        // Show the last *complete* pass while passes keep completing, and the
+        // partial one only once they stop.
+        //
+        // Blinking g_beacons directly was a sampling bug wearing a diagnostic's
+        // clothes: the frame is one instantaneous read, a pass is shorter than a
+        // frame, so a healthy machine produced a different arbitrary subset of
+        // its own phases every time. "Alive and phase one" and "nothing at all"
+        // are both ordinary snapshots of a machine working perfectly, and both
+        // were read as evidence of a wedge.
+        //
+        // A completed pass is a whole statement, so prefer it. Only when nothing
+        // completes between frames is the partial pass the interesting one, and
+        // then it says exactly how far the PP got before it stopped.
+        static uint32_t last_pass_seen;
+        uint32_t pass = g_pass;
+        bool completing = pass != last_pass_seen;
+        last_pass_seen = pass;
+        uint32_t hits = completing ? g_beacons_last : g_beacons;
+#else
         uint32_t hits = g_beacons;
+#endif
 #else
         // The frame is reset by core 1 the moment the machine restarts; here we
         // only read it.  See PP_RESTART_ADDR in watch.h.

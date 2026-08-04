@@ -117,7 +117,14 @@ rg:     mov r0, @#177010
         mov @#177010, r4
         xor r0, r4
         bis r4, r5
-        inc r0
+;      Reported from inside the loop, not after it. The end-of-pass verdict is
+;      lost if the loop never ends -- and this is the loop the machine stops in.
+;      Once r5 is dirty this beacons every iteration, which roughly doubles the
+;      loop time; that only happens after the answer has already been obtained.
+        beq nreg
+        mov #{BEACON + 2 * B_REG_FAIL:o}, r1
+        tst (r1)
+nreg:   inc r0
         cmp r0, #{plane_words:o}
         blo rg
 
