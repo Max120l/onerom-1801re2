@@ -311,24 +311,33 @@ static void __not_in_flash_func(serve_forever)(void) {
     while (true) {
         uint32_t snap = pio_sm_get_blocking(g_pio, SM_CAPTURE);
 
-#if MPI_WATCH
-        // Drain the previous cycle's readback before queueing this one's
-        // pattern.  Order matters: the response machine samples the AD lines
-        // early now -- at the moment it asserts the reply, not at the end of the
-        // cycle -- so a readback checked *after* the put could be this cycle's,
-        // compared against last cycle's pattern, and report a mismatch that
-        // never happened.  Draining here, before the machine has been given
-        // anything to drive, makes that impossible.  It also has to happen every
-        // iteration regardless: autopush stalls the state machine on a full FIFO.
+        // Drain the previous cycle's readback, unconditionally.
+        //
+        // The response program samples the bus on every served cycle and
+        // autopushes it, so something has to empty that FIFO whether or not
+        // anyone is looking at the contents. This drain used to sit inside
+        // #if MPI_WATCH, which meant the plain build never emptied it: four
+        // served cycles filled it, autopush stalled the state machine at the
+        // "in", and the board stopped answering the bus altogether. The comment
+        // right here said it was not optional, and it was behind a conditional.
+        //
+        // Order matters too. The bus is sampled early -- at the moment the reply
+        // is asserted, not at the end of the cycle -- so a readback taken after
+        // the put below could be this cycle's, compared against last cycle's
+        // pattern, and report a mismatch that never happened. Draining before
+        // the machine has been given anything to drive makes that impossible.
         if (!pio_sm_is_rx_fifo_empty(g_pio, SM_RESPOND)) {
             uint32_t saw = pio_sm_get(g_pio, SM_RESPOND);
+#if MPI_WATCH
             uint32_t bad = (saw ^ last_pattern) & g_dirs_ad;
             if (bad) {
                 g_bus_hits |= 1u << BUS_DATA_MISMATCH;
                 g_mismatch |= bad;
             }
-        }
+#else
+            (void)saw;
 #endif
+        }
 
         // The response machine raises IRQ_SERVED once the host has taken the
         // data, so a cycle that completed leaves it idle at its PULL with

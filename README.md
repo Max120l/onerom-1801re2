@@ -1142,6 +1142,27 @@ BK-ROM-Disk GAL (`RPLY = CHIPSEL & (DIN # !_DOUT)`) does reply to writes, but
 that is a RAM-disk controller, not a ROM. If the answer is "no", nothing needs
 adding: this firmware only ever responds to nDIN.
 
+## A conditional that should not have been one
+
+After the RAM repair the plain build would not initialise the machine and the
+status LED blinked fast — which is precisely what the LED is defined to mean:
+cycles being served, replies prepared, none of them taken.
+
+The response program samples the bus on every served cycle and autopushes the
+result. Something has to empty that FIFO whether or not anyone reads it, and the
+drain was written inside `#if MPI_WATCH`. The watch builds emptied it; the plain
+build never did. Four served cycles filled it, autopush stalled the state
+machine at the `in`, and the board stopped answering — while core 1 carried on
+capturing addresses and queueing replies nobody would ever take, which is the
+5 Hz blink exactly.
+
+The comment above the drain said "it also has to happen every iteration
+regardless: autopush stalls the state machine on a full FIFO", and it was behind
+a conditional. Knowing the rule and encoding it are different things.
+
+It drains unconditionally now, with only the comparison under `MPI_WATCH`, so
+the plain and diagnostic builds share the one path and cannot diverge again.
+
 ## Which build to run
 
 Both 150 MHz and 200 MHz boot an MS 0511, so the deadline is not tight and the
