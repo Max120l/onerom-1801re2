@@ -105,6 +105,21 @@ typedef struct {
 enum {
     BUS_REPLY_UNTAKEN,      // a reply was prepared and the host never took it
 
+    // Did the bus carry what we drove?
+    //
+    // Coverage came back complete on all four windows, no reply went untaken,
+    // and the machine still reported a bad block. The one thing left that no
+    // counter of cycles can see is the data itself: we drive sixteen lines and
+    // have never once checked what is actually on them.
+    //
+    // So look. The response machine samples the AD lines at the moment the host
+    // releases the read strobe -- the closest instant to when the host latched
+    // them, with our drivers still on -- and the CPU compares that against the
+    // pattern it asked for. A mismatch means something between our pads and the
+    // processor is not carrying what we sent, which is the last board-side
+    // explanation standing.
+    BUS_DATA_MISMATCH,
+
     // Were we awake before the machine started asking?
     //
     // The board takes its power from the socket, so it and the machine come out
@@ -123,6 +138,22 @@ enum {
 };
 
 #define PP_POWERUP_VECTOR  0160000
+
+// A frame describes one boot, not a power session.
+//
+// Hits were originally never cleared, on the reasoning that "did this ever
+// happen" is the useful question. It is not, once the machine is being reset
+// repeatedly: the frame becomes the union of every boot since the board was
+// powered, and a checksum failure from the third attempt sits in the same frame
+// as a screen drawn on the fifth. That ambiguity showed up the moment a boot
+// printed a CPU error with no ROM error while the checksum pulse was still lit
+// from an earlier try.
+//
+// So the frame clears when the machine restarts. The PP takes PC then PSW from
+// its power-up vector, so a fetch of 160002 directly behind 160000 means a
+// restart -- and, being a pair, it cannot be forged by the checksum reading
+// those same two words as data on its way down.
+#define PP_RESTART_ADDR    (PP_POWERUP_VECTOR + 2)
 
 // ---------------------------------------------------------------------------
 // Window coverage
@@ -154,6 +185,8 @@ enum {
 //
 // 4 KB of bitmap and three instructions off the reply path to answer a question
 // no amount of staring at the ROM contents can.
+// Reported as a single pulse: all four windows came back complete on hardware,
+// so the interesting reading is now "still complete" rather than which one.
 #define MPI_COVERAGE_WINDOWS  4         // the four the UKNC's ROMs occupy
 #define MPI_COVERAGE_FIRST    4         // window index of 100000
 

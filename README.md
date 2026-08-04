@@ -366,6 +366,44 @@ instructions after the strobe while nRPLY alone is held high.
 The lesson generalises: an instrumented build has to be timing-identical to the
 one it is measuring, and OUT and SET see different pins.
 
+## The machine's own verdict: ЦП, not ПЗУ
+
+With coverage instrumented, the frame came back long on 1, 2, 6 and 7 — and all
+four windows complete. Every word of every window we serve was asked for and
+answered by us. Nothing was banked away, nothing went unanswered, no reply went
+untaken, and we were listening before the machine asked its first question.
+
+The screen is now doing the talking. Repeated resets produce, variously, the
+boot menu; a `*** СТОП ***` halt display with a PC and PSW; and the startup test
+screen:
+
+```
+СТАРТОВЫЙ ТЕСТ
+- ошибка ЦП
+```
+
+**ЦП is the central processor, and there is no `- ошибка ПЗУ` line beside it.**
+On that boot the monitor checksummed all four of our windows and was satisfied,
+then found the central processor faulty.
+
+That matters more than it looks, because of how the UKNC is built: **the central
+processor has no ROM at all.** Everything below 160000 in its address space is
+RAM and everything above is I/O, so it runs entirely on code the PP writes into
+it through the plane ports — the copy loop at 173252, sourcing from our image at
+160000–173212 while the CPU is held in DCLO reset. The PP then releases it and
+reads its verdict back over channel 0 at port 177060.
+
+So the chain is: our ROM → PP → CPU RAM → CPU self-test → a byte at 177060 → the
+message on screen. Our end of that chain now measures clean at every point we
+can instrument, and the checksum verifies the bytes.
+
+The one link still unmeasured is the wire itself, which is what pulse 5 is for:
+the response machine samples the AD lines at the instant the host releases the
+read strobe, with our drivers still on, and compares against what it was asked
+to drive. If that stays short while the CPU error persists, the board has been
+exonerated at every point it is possible to exonerate it, and the fault is in
+the machine.
+
 ## The boot menu, seen
 
 With the plain watch build flashed, a restart followed by a **reset** produced
@@ -802,11 +840,17 @@ is ever cleared, so a frame that changes between passes is itself a fact.
 | 2 | 160450 after 160446 | a ROM block failed its checksum |
 | 3 | 101006 after 101004 | the boot menu header was printed |
 | 4 | *(bus)* | a reply was prepared and the host never took it |
-| 5 | *(bus)* | the first cycle we ever saw was the power-up vector fetch — we won the startup race |
-| 6 | *(bus)* | window 100000 fully covered: every word we serve there was asked for |
-| 7 | *(bus)* | window 120000 fully covered |
-| 8 | *(bus)* | window 140000 fully covered |
-| 9 | *(bus)* | window 160000 fully covered |
+| 5 | *(bus)* | the bus carried something other than what we drove |
+| 6 | *(bus)* | the first cycle of this boot was the power-up vector fetch — we won the startup race |
+| 7 | *(bus)* | all four windows fully covered: every word we serve was asked for |
+
+**A frame describes one boot.** Hits were originally never cleared, which made a
+frame the union of every boot since the board was powered — and that ambiguity
+bit immediately, when a boot printed a CPU error with no ROM error while the
+checksum pulse was still lit from an earlier attempt. The frame now clears when
+the PP takes PC and PSW from its power-up vector, detected as the pair 160002
+directly behind 160000 so the checksum cannot forge it by reading those same two
+words on its way down.
 
 The frame has been trimmed as questions closed. The PP RAM test, the error
 printer and the end of the startup test answered consistently — RAM clean, no

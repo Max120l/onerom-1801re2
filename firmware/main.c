@@ -84,8 +84,9 @@ static volatile uint32_t g_bus_hits;
 // One bit per word of each window, set as we serve it.  See watch.h.
 static uint32_t g_seen[MPI_COVERAGE_WINDOWS][4096 / 32];
 
-#define WATCH_PULSES \
-    (count_of(g_watch) + BUS_EVENT_COUNT + MPI_COVERAGE_WINDOWS)
+// Coverage is one pulse, not four: all four windows came back complete on
+// hardware, so the reading that matters is now "still complete".
+#define WATCH_PULSES  (count_of(g_watch) + BUS_EVENT_COUNT + 1)
 
 static inline void __not_in_flash_func(coverage_note)(uint32_t addr) {
     unsigned w = ((addr >> 13) & 7) - MPI_COVERAGE_FIRST;
@@ -115,6 +116,10 @@ static bool coverage_complete(unsigned w) {
 // predecessor. That adjacency is what distinguishes executing the instruction
 // from the checksum reading it, and it is the whole reason this is useful --
 // see watch.h.
+// Set by core 1 when the machine restarts, acted on by core 0 at the top of the
+// next frame.  Clearing 4 KB of bitmap has no business on core 1.
+static volatile bool g_restarted;
+
 static inline void __not_in_flash_func(watch_note)(uint32_t addr) {
     static uint32_t prev = 0xFFFFFFFF;
     static bool first = true;
@@ -124,6 +129,8 @@ static inline void __not_in_flash_func(watch_note)(uint32_t addr) {
         if (addr == PP_POWERUP_VECTOR) {
             g_bus_hits |= 1u << BUS_FIRST_IS_VECTOR;
         }
+    } else if (addr == PP_RESTART_ADDR && prev == PP_POWERUP_VECTOR) {
+        g_restarted = true;         // PC then PSW: the machine has restarted
     }
     for (unsigned i = 0; i < count_of(g_watch); i++) {
         if (addr == g_watch[i].addr && prev == g_watch[i].prev) {
@@ -242,6 +249,9 @@ static void __not_in_flash_func(rearm_respond)(void) {
 
 static void __not_in_flash_func(serve_forever)(void) {
     bool armed = false;
+#if MPI_WATCH
+    uint32_t last_pattern = 0;
+#endif
     while (true) {
         uint32_t snap = pio_sm_get_blocking(g_pio, SM_CAPTURE);
 
@@ -279,6 +289,19 @@ static void __not_in_flash_func(serve_forever)(void) {
                 g_served++;
 #if MPI_WATCH
                 coverage_note(addr);    // after the put: never on the reply path
+
+                // The previous cycle's readback: what was actually on the AD
+                // lines when the host released the strobe, against what we
+                // asked the response machine to drive. Draining it every
+                // iteration is not optional -- autopush would stall the state
+                // machine on a full FIFO.
+                if (!pio_sm_is_rx_fifo_empty(g_pio, SM_RESPOND)) {
+                    uint32_t saw = pio_sm_get(g_pio, SM_RESPOND);
+                    if ((saw & g_dirs_ad) != (last_pattern & g_dirs_ad)) {
+                        g_bus_hits |= 1u << BUS_DATA_MISMATCH;
+                    }
+                }
+                last_pattern = pattern;
 #endif
             }
         }
@@ -346,11 +369,22 @@ int main(void) {
     while (true) {
         gpio_put(GPIO_STATUS_LED, STATUS_LED_OFF);
         sleep_ms(1500);                                  // frame marker
+        // One frame, one boot.  See PP_RESTART_ADDR in watch.h.
+        if (g_restarted) {
+            g_restarted = false;
+            g_watch_hits = 0;
+            memset(g_seen, 0, sizeof g_seen);
+            // We were listening when this boot began -- that is how we knew.
+            g_bus_hits = 1u << BUS_FIRST_IS_VECTOR;
+        }
+
         uint32_t hits = g_watch_hits | (g_bus_hits << count_of(g_watch));
+        bool covered = true;
         for (unsigned w = 0; w < MPI_COVERAGE_WINDOWS; w++) {
-            if (coverage_complete(w)) {
-                hits |= 1u << (count_of(g_watch) + BUS_EVENT_COUNT + w);
-            }
+            covered = covered && coverage_complete(w);
+        }
+        if (covered) {
+            hits |= 1u << (count_of(g_watch) + BUS_EVENT_COUNT);
         }
         for (unsigned i = 0; i < WATCH_PULSES; i++) {
             gpio_put(GPIO_STATUS_LED, STATUS_LED_ON);
