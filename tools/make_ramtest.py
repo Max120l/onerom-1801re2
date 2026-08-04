@@ -290,7 +290,28 @@ park:   bis #{RES_DONE:o}, r5
         mov r5, @#{RESULT:o}
         mov r3, @#{RESULT_MASK:o}
         mov #{BEACON + 2 * B_DONE:o}, r1
+        clr r2
+
+; ---- and then sit there driving every plane data line, for the scope.
+;
+;      Parking silently wasted the one thing a bench probe needs: a stimulus
+;      where every bit is doing the same thing. The test's own pattern is the
+;      opposite of that -- it writes the address as the data, so bit 0 of the
+;      low byte toggles on every single write while bit 7 toggles once per 128.
+;      A healthy bit 7 looks sluggish next to bit 0 for that reason alone, and
+;      comparing them says nothing.
+;
+;      Writing all-zeros then all-ones to one address toggles all sixteen lines
+;      at the same rate, so every bit becomes comparable with every other -- and
+;      in particular bit 7 of plane 1 with bit 7 of plane 2, which is the same
+;      position in the same kind of chip and the only fair comparison there is.
+;      A weak or dead line stands out against its own twin.
+;
+;      The beacon read stays in the loop so the LED keeps reporting.
 spin:   tst (r1)
+        mov r2, @#177010
+        clr @#177014
+        mov #177777, @#177014
         br spin
 """
 

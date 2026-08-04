@@ -577,6 +577,23 @@ writing the address as the data leaves the high byte counting only 0…127 over 
 have been structurally blind to exactly the kind of fault it just found, had it
 been in the other plane.
 
+### Scoping it, fairly
+
+A probe on the suspect line during the test reported "much less activity than
+the other bits", which looked like evidence and was not. **The test writes the
+address as the data**, so the low byte counts 0…255 over and over: bit 0 toggles
+on every write, bit 7 once per 128. A perfectly healthy bit 7 looks sluggish
+next to bit 0 for that reason alone.
+
+So the test no longer parks silently. Once it has reported, it sits in a loop
+writing all-zeros then all-ones to one address, which toggles all sixteen plane
+data lines at the same rate. Every bit becomes comparable with every other, and
+in particular **bit 7 of plane 1 with bit 7 of plane 2** — the same position in
+the same kind of chip, and the only genuinely fair comparison available. A weak
+or dead line stands out against its own twin instead of against a faster
+neighbour. The beacon read stays in the loop so the LED keeps reporting while
+the probe is on.
+
 Pulses 9–16 are the follow-up. The test already knew *which bits* — that is the
 mask it leaves at 077662 — it simply had no way to say so on hardware. Each
 pulse is one bit position of the failing plane's byte, and on a bank built from
