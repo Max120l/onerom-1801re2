@@ -292,6 +292,36 @@ the next one could. From the observed ramp the line looks like a few hundred pF,
 which 8 mA slews in 100–200 ns, so 320 ns does it with margin and still fits
 inside the shortest turnaround the PP could produce at 6.25 MHz.
 
+### What the socket looks like with the board pulled
+
+Pin 2 with the board removed sits at a **solid 5 V**. Three consequences, one of
+which cuts against the section above:
+
+**There is a real pull-up.** The machine restores its own reply line, so open
+drain is the correct model and the assist is a workaround for a slow rise, not a
+correction of a wrong model. An earlier note here suggested that a line which
+drifted when unloaded would mean the machine expects its slaves to drive high.
+It does not drift, so that reading is off the table.
+
+**The board is loading the top of the swing.** Unloaded the line reaches 5.0 V;
+with the board fitted the ramps peak at 4.24 V. That 0.76 V appears only when we
+are in the socket, and 4.24 V is about what a 3V3 rail plus a diode drop looks
+like — the signature of the pad's clamp conducting, which is what a non-5V-
+tolerant input on a 5 V bus does. The current involved is well under a milliamp
+against any sane pull-up, so it is a loading effect rather than a hazard, but it
+is why the ramp flattens as it approaches the top instead of arriving.
+
+**It weakens the timing argument.** An RC curve crosses a TTL VIH of 2.0 V early
+in its rise — well before the flattening that the clamp causes — so the line
+probably does reach a valid high in time more often than the shape suggests. The
+"still looks asserted" mechanism is therefore a plausible lead, not an
+established cause.
+
+What settles it is a two-channel capture: **nRPLY on pin 2 against nDIN on pin
+1**. If nRPLY is reliably above threshold before nDIN next falls, the reply line
+is exonerated and the corruption is elsewhere. If it is not, the mechanism is
+confirmed and the assist is the fix. One capture decides it.
+
 ### The board is not the problem — superseded
 
 The reasoning below is left because it is still sound as far as it goes; it is
