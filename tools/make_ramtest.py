@@ -85,7 +85,13 @@ RES_PP_RAM_OK, RES_PLANE1_BAD, RES_PLANE2_BAD, RES_DONE = 1, 2, 4, 8
 
 # Beacon numbers are the protocol; the firmware reads against this list.
 (B_ALIVE, B_PP_RAM_PASS, B_PP_RAM_FAIL, B_PLANE_PASS,
- B_PLANE1_FAIL, B_PLANE2_FAIL, B_DONE) = range(7)
+ B_PLANE1_FAIL, B_PLANE2_FAIL, B_DONE, _B_SPARE) = range(8)
+
+# Beacons 8..15 are the bit positions that came back wrong, one per bit of the
+# failing plane's byte. In a bank built from 1-bit-wide DRAM each bit is one
+# chip, so this turns "plane 1 is bad" into a list of parts to unsolder.
+B_BIT0 = 8
+BEACON_COUNT = 16
 
 def program(ram_top, plane_words):
     return f"""
@@ -203,10 +209,29 @@ qbad:   mov r3, r2
         bis #{RES_PLANE1_BAD:o}, r5
 q1ok:   mov r3, r2
         bic #377, r2
-        beq finish
+        beq bits
         mov #{BEACON + 2 * B_PLANE2_FAIL:o}, r1
         tst (r1)
         bis #{RES_PLANE2_BAD:o}, r5
+
+; ---- name the bits. Fold the two bytes together -- which plane they belong to
+;      is already said above -- and beacon one address per bit still set. Each
+;      bit of a plane is one column of the bank, so on 1-bit-wide DRAM this is
+;      a list of chips rather than a diagnosis to interpret.
+bits:   mov r3, r2
+        mov r3, r4
+        swab r4
+        bis r4, r2
+        bic #177400, r2
+        mov #{BEACON + 2 * B_BIT0:o}, r1
+        mov #10, r0
+bloop:  bit #1, r2
+        beq bskip
+        tst (r1)
+bskip:  add #2, r1
+        asr r2
+        dec r0
+        bne bloop
 
 ; ---- leave the verdict where a debugger or an emulator's memory view can read
 ;      it, then park, beaconing so the board can tell "finished" from "hung"
@@ -230,6 +255,8 @@ def build(ram_top=PP_RAM_TOP, plane_words=PLANE_WORDS):
         raise SystemExit(f"ram_top {ram_top:06o} runs past the end of PP RAM")
     if BEACON < 0o100000:
         raise SystemExit(f"beacons at {BEACON:06o} are not in ROM")
+    if BEACON + 2 * BEACON_COUNT > 0o177000:
+        raise SystemExit(f"beacons from {BEACON:06o} reach the I/O page")
     if RESULT >= ram_top or RESULT_MASK >= ram_top:
         pass          # the verdict is written after the walk, so overlap is fine
     if plane_words > 0o100000:
@@ -260,7 +287,8 @@ def main() -> int:
     print(f"wrote {args.output}: {len(rom)} bytes, {len(code)} words of code")
     print(f"  power-up vector at {VECTOR:06o} -> {ENTRY:06o}")
     print(f"  beacons at {BEACON:06o}: 0=alive 1=PP RAM ok 2=PP RAM bad "
-          f"3=planes ok 4=plane 1 bad 5=plane 2 bad 6=done")
+          f"3=planes ok 4=plane 1 bad 5=plane 2 bad 6=done, "
+          f"{B_BIT0}..{B_BIT0 + 7}=failing bit 0..7")
     print(f"  and in memory: {RESULT:06o} = status "
           f"(1 PP RAM ok, 2 plane 1 bad, 4 plane 2 bad, 10 done, octal), "
           f"{RESULT_MASK:06o} = bits ever wrong")

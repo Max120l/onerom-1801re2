@@ -113,6 +113,51 @@ class PlanePP(PP):
             self.setnz(v)
             self.v = 0
             return True
+        if op & 0o177700 == 0o000300:                   # SWAB
+            self.r[7] = (self.r[7] + 2) & 0xFFFF
+            dm, dr = (op >> 3) & 7, op & 7
+            da = self.addr_of(dm, dr)
+            v = self.r[dr] if da is None else self.read(da)
+            v = ((v >> 8) | (v << 8)) & 0xFFFF
+            if da is None:
+                self.r[dr] = v
+            else:
+                self.write(da, v)
+            self.setnz(v & 0xFF)
+            return True
+        if op & 0o177700 == 0o005300:                   # DEC
+            self.r[7] = (self.r[7] + 2) & 0xFFFF
+            dm, dr = (op >> 3) & 7, op & 7
+            da = self.addr_of(dm, dr)
+            v = ((self.r[dr] if da is None else self.read(da)) - 1) & 0xFFFF
+            if da is None:
+                self.r[dr] = v
+            else:
+                self.write(da, v)
+            self.setnz(v)
+            return True
+        if op & 0o177700 == 0o006200:                   # ASR
+            self.r[7] = (self.r[7] + 2) & 0xFFFF
+            dm, dr = (op >> 3) & 7, op & 7
+            da = self.addr_of(dm, dr)
+            v = self.r[dr] if da is None else self.read(da)
+            self.c = v & 1
+            v = ((v >> 1) | (v & 0x8000)) & 0xFFFF
+            if da is None:
+                self.r[dr] = v
+            else:
+                self.write(da, v)
+            self.setnz(v)
+            return True
+        if (op >> 12) & 0o17 == 0o3:                    # BIT: src & dst, no store
+            self.r[7] = (self.r[7] + 2) & 0xFFFF
+            sm, sr = (op >> 9) & 7, (op >> 6) & 7
+            dm, dr = (op >> 3) & 7, op & 7
+            src, _ = self.get(sm, sr)
+            dst, _ = self.get(dm, dr)
+            self.setnz(src & dst)
+            self.v = 0
+            return True
         if (op >> 12) & 0o17 in (0o4, 0o5):             # BIC, BIS
             self.r[7] = (self.r[7] + 2) & 0xFFFF
             sm, sr = (op >> 9) & 7, (op >> 6) & 7
@@ -184,7 +229,7 @@ def check_shipped_defaults():
         bad.append(f"PP_RAM_TOP {B.PP_RAM_TOP:06o} is past the end of PP RAM")
     if B.BEACON < 0o100000:
         bad.append(f"BEACON {B.BEACON:06o} is not in ROM, so we may not see it")
-    if B.BEACON + 2 * 7 > 0o177000:
+    if B.BEACON + 2 * B.BEACON_COUNT > 0o177000:
         bad.append(f"beacons from {B.BEACON:06o} reach the I/O page")
     if not (B.ENTRY < B.BEACON):
         bad.append("the program overlaps its own beacons")
@@ -208,10 +253,12 @@ def main() -> int:
                     [B.B_ALIVE, B.B_PP_RAM_PASS, B.B_PLANE_PASS, B.B_DONE],
                     B.RES_PP_RAM_OK | B.RES_DONE)
     failures += run("plane 1 bit 3 stuck low", (1, 3),
-                    [B.B_ALIVE, B.B_PP_RAM_PASS, B.B_PLANE1_FAIL, B.B_DONE],
+                    [B.B_ALIVE, B.B_PP_RAM_PASS, B.B_PLANE1_FAIL, B.B_DONE,
+                     B.B_BIT0 + 3],
                     B.RES_PP_RAM_OK | B.RES_PLANE1_BAD | B.RES_DONE)
     failures += run("plane 2 bit 6 stuck low", (2, 6),
-                    [B.B_ALIVE, B.B_PP_RAM_PASS, B.B_PLANE2_FAIL, B.B_DONE],
+                    [B.B_ALIVE, B.B_PP_RAM_PASS, B.B_PLANE2_FAIL, B.B_DONE,
+                     B.B_BIT0 + 6],
                     B.RES_PP_RAM_OK | B.RES_PLANE2_BAD | B.RES_DONE)
     print("\n" + ("all checks passed" if not failures else f"{failures} failure(s)"))
     return 1 if failures else 0

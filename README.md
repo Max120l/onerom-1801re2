@@ -535,6 +535,31 @@ ourselves. Reading ROM is harmless; only the address matters.
 | 5 | **plane 1 failed** |
 | 6 | **plane 2 failed** |
 | 7 | finished |
+| 8 | *(spare)* |
+| 9–16 | bit 0…7 of the failing plane's byte |
+
+## The answer: plane 1
+
+On hardware the frame read **long long short short long short long short** —
+alive, PP RAM good, planes *not* ok, **plane 1 bad**, plane 2 fine, done.
+
+The central processor's RAM is faulty in plane 1, which is the low byte of
+every word it executes. That is the machine's `- ОШИБКА ОЗУ ЦП` confirmed from
+the outside, by a test running on the other processor with the faulty one held
+in reset — and it explains the whole cluster of symptoms at once. The CPU's
+program is copied into planes 1 and 2 before it is released, so corrupt low
+bytes give a CPU that reports itself broken, halts with `*** СТОП ***`, or runs
+just well enough to paint a menu, depending on where the damage lands.
+
+It also explains why a bank tested out of circuit came back clean: plane 0 is
+the PP's own RAM, which the monitor tests and passes on every boot, and which
+this test passes too.
+
+Pulses 9–16 are the follow-up. The test already knew *which bits* — that is the
+mask it leaves at 077662 — it simply had no way to say so on hardware. Each
+pulse is one bit position of the failing plane's byte, and on a bank built from
+1-bit-wide DRAM each bit is one column: a list of chips rather than a diagnosis
+to interpret.
 
 ### Running it in the emulator, with no emulator changes
 
