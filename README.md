@@ -538,6 +538,37 @@ ourselves. Reading ROM is harmless; only the address matters.
 | 8 | **the bit was already wrong on an immediate reread** — dead, not leaky |
 | 9–16 | bit 0…7 of the failing plane's byte |
 
+## Which chips the planes are
+
+From the MS 0511 schematic, the RAM is 24 × K565RU5 (4164, 64K × 1) in two
+groups, and the arithmetic pins each plane to a group:
+
+| chips | data lines | width | = |
+| --- | --- | --- | --- |
+| 8, on D10 | DG0–DG7 | 8 bits × 64 K | **plane 0** — the PP's own RAM |
+| 16, on D8 | DC0–DC15 | 16 bits × 64 K | **planes 1 and 2** — the CPU's RAM |
+
+24 chips × 64 Kbit is 192 KB, which is three 64 KB planes, which is what the
+emulator allocates. The 8-bit group can only be plane 0, because plane 0 is the
+one the PP reaches a byte at a time through 177012. The 16-bit group is the pair
+the CPU sees as words, reached together through 177014 — and since that port
+puts the **low** byte in plane 1 and the high byte in plane 2:
+
+```
+DC0 … DC7   = plane 1 = the low byte of every word the CPU executes
+DC8 … DC15  = plane 2 = the high byte
+```
+
+So **plane 1 bit 7 is the chip on DC7**. Physically the 16-bit group is likely
+two rows of eight, and DC0–DC7 is the row that is plane 1.
+
+One bound worth knowing before trusting a clean result later: the test walks
+32768 addresses of each plane, which is half of a 64 KB plane. That covers
+everything the central processor can reach — its window below 160000 maps to
+about 28 KB of each plane — but not the upper half, which is video-only. A fault
+there would be in the same chip regardless, so it does not change which part is
+implicated; it does mean a pass is a pass over the CPU-visible half.
+
 ## The answer: plane 1, bit 7, hard
 
 On hardware the frame read **long long short short long short long short** —
