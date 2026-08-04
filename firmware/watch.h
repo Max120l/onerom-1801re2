@@ -269,9 +269,15 @@ enum {
 // not the cycle is ours, so we see them anyway. Being the ROM and the
 // instrument at the same time is the one thing a mask ROM could never do.
 //
+// The beacons sit in ROM rather than RAM so that seeing them needs no
+// assumption at all: we answer those reads ourselves. In PP RAM it would depend
+// on the capture machine latching cycles for addresses we do not serve, which
+// is probably true and has never been demonstrated -- every address this
+// project has confirmed seeing has been one of ours.
+//
 // -DMPI_BEACONS=ON replaces the monitor watchpoints in the LED frame with one
 // pulse per beacon. Keep in step with tools/make_ramtest.py.
-#define PP_BEACON_BASE   0077700
+#define PP_BEACON_BASE   0176700
 #define PP_BEACON_COUNT  8
 
 #define CHK_CMP_EXT     0160444     // second word of the compare

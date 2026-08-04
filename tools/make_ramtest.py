@@ -43,7 +43,18 @@ ROM_BYTES = 0o100000 - 0o1000        # 32256: stops at the I/O page
 VECTOR = 0o160000                    # PP power-up PC, then PSW at 160002
 ENTRY = 0o160300
 
-BEACON = 0o077700                    # in PP RAM, above anything the test touches
+# Beacons live in ROM, not RAM, and the difference is not cosmetic.
+#
+# A beacon works by being an address on the bus that the board sees go past. In
+# PP RAM that relies on the capture machine latching cycles for addresses we do
+# not serve -- true if the socket's SYN is the raw bus strobe, and every result
+# this project has gathered has been a ROM address, so it has never actually
+# been demonstrated. In ROM it needs no such assumption: we answer the read
+# ourselves, so we cannot fail to see it.
+#
+# 176700 is inside the last window, past the end of this program and past
+# anything it touches. Reading ROM is harmless; only the address matters.
+BEACON = 0o176700
 PLANE_WORDS = 0o100000               # 32768 byte addresses per plane
 
 # The same verdict, left in memory rather than blinked.

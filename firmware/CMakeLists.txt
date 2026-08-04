@@ -22,7 +22,6 @@ pico_generate_pio_header(mpi_rom ${CMAKE_CURRENT_LIST_DIR}/mpi_rom.pio)
 # Diagnostic build: score a handful of monitor addresses and blink the result.
 # Off by default -- a board left in a machine should be a ROM and nothing else.
 option(MPI_WATCH "Watch monitor addresses and report them on the LED" OFF)
-target_compile_definitions(mpi_rom PRIVATE MPI_WATCH=$<BOOL:${MPI_WATCH}>)
 
 # Answer every read in our windows regardless of the socket's CS.  Paired with
 # MPI_WATCH this isolates one variable: build both, flash both, and the frame
@@ -37,14 +36,32 @@ endif()
 option(MPI_RPLY_ASSIST "Assist the rising edge of nRPLY" OFF)
 target_compile_definitions(mpi_rom PRIVATE MPI_RPLY_ASSIST=$<BOOL:${MPI_RPLY_ASSIST}>)
 
-# System clock in kHz.  150000 is the RP2350's rated speed and the default; the
-# only reason to raise it is to shorten the address-to-reply path, which matters
-# only if replies are being assembled too late to be taken.
 # Report our own test ROM's beacons on the LED instead of the stock monitor's
 # behaviour.  Pair with an image built by tools/make_ramtest.py.
 option(MPI_BEACONS "Blink the test ROM's beacons rather than watchpoints" OFF)
-target_compile_definitions(mpi_rom PRIVATE MPI_BEACONS=$<BOOL:${MPI_BEACONS}>)
 
+# MPI_BEACONS needs MPI_WATCH, and silently did not say so. Beacon counting and
+# the LED frame both live inside #if MPI_WATCH, so -DMPI_BEACONS=ON on its own
+# built a firmware that ignored every beacon and ran the ordinary status LED --
+# which on hardware looked like the board blinking away busily while reporting
+# nothing at all. An option that quietly does nothing is worse than one that
+# does not exist.
+#
+# Resolved before either is defined, so exactly one MPI_WATCH reaches the
+# compiler. Defining it twice and relying on the later flag winning is how the
+# next version of this bug gets written.
+if(MPI_BEACONS AND NOT MPI_WATCH)
+    message(STATUS "MPI_BEACONS implies MPI_WATCH; enabling it")
+    set(MPI_WATCH ON)
+endif()
+
+target_compile_definitions(mpi_rom PRIVATE
+    MPI_WATCH=$<BOOL:${MPI_WATCH}>
+    MPI_BEACONS=$<BOOL:${MPI_BEACONS}>)
+
+# System clock in kHz.  150000 is the RP2350's rated speed and the default; the
+# only reason to raise it is to shorten the address-to-reply path, which matters
+# only if replies are being assembled too late to be taken.
 set(MPI_SYS_CLK_KHZ "" CACHE STRING "System clock in kHz (default 150000)")
 if(MPI_SYS_CLK_KHZ)
     target_compile_definitions(mpi_rom PRIVATE MPI_SYS_CLK_KHZ=${MPI_SYS_CLK_KHZ})

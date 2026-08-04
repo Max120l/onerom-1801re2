@@ -51,6 +51,12 @@ class PlanePP(PP):
 
     def read(self, addr):
         addr &= 0xFFFE
+        # This test's beacons live in ROM, not where test_testrom's base class
+        # looks for them, so record them here before anything else claims the
+        # address as an ordinary ROM word.
+        if BEACON <= addr < BEACON + 0o100:
+            self.beacons.append((addr - BEACON) // 2)
+            return 0
         if addr == 0o177010:
             return self.paddr
         if addr == 0o177012:

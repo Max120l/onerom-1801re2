@@ -508,7 +508,23 @@ each location holding its address and then the complement, so every bit takes
 both values everywhere. It accumulates the XOR of what came back against what
 went in, so the result holds exactly the bits that were ever wrong.
 
-Results come back as beacons, and `-DMPI_BEACONS=ON` blinks them:
+Results come back as beacons, and `-DMPI_BEACONS=ON` blinks them. Two things
+about that build are worth knowing, because both were got wrong first:
+
+**`MPI_BEACONS` needs `MPI_WATCH`, and used not to say so.** Beacon counting and
+the LED frame both live inside `#if MPI_WATCH`, so `-DMPI_BEACONS=ON` alone
+produced a firmware that ignored every beacon and ran the ordinary status LED —
+which on hardware looks like the board blinking away busily while reporting
+nothing whatsoever. It now implies it, resolved before either reaches the
+compiler rather than by defining `MPI_WATCH` twice and trusting the later flag
+to win.
+
+**The beacons live in ROM, not RAM.** A beacon works by being an address the
+board sees go past. At 077700 in PP RAM that depends on the capture machine
+latching cycles for addresses we do not serve — probably true, but never
+demonstrated: every address this project has confirmed seeing has been one of
+ours. At 176700 it needs no assumption at all, because we answer the read
+ourselves. Reading ROM is harmless; only the address matters.
 
 | pulse | |
 | --- | --- |

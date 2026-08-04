@@ -163,6 +163,9 @@ static inline void __not_in_flash_func(watch_note)(uint32_t addr) {
         g_boot++;
         g_watch_hits = 0;
         g_mismatch = 0;
+#if MPI_BEACONS
+        g_beacons = 0;      // the test ROM re-runs from the top; so does its report
+#endif
         g_fail_block = 0;
         g_last_sum = CHK_SUM_LOW;
         g_bus_hits = 1u << BUS_FIRST_IS_VECTOR;   // we saw this boot begin
