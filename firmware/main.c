@@ -97,24 +97,19 @@ static volatile uint16_t g_boot = 1;
 // Every AD line that has ever read back differently from what we drove.
 static volatile uint32_t g_mismatch;
 
-static const uint8_t g_ad_gpio[16] = AD_GPIO;
-
-// Lowest-numbered AD line in a mismatch mask.  A wrong bit is worth naming: it
-// points at one socket contact rather than at "the bus".
-static unsigned mismatch_ad_line(uint32_t mask) {
-    for (unsigned i = 0; i < 16; i++) {
-        if (mask & (1u << g_ad_gpio[i])) {
-            return i;
-        }
-    }
-    return 0;
-}
+// Which block the checksum was comparing when it last found a mismatch, and the
+// stored sum most recently read.  See CHK_CMP_EXT in watch.h.
+static volatile uint32_t g_last_sum = CHK_SUM_LOW;
+static volatile unsigned g_fail_block;
 
 // Coverage is one pulse, not four: all four windows came back complete on
-// hardware, so the reading that matters is now "still complete".  The last four
-// are a binary number naming the offending AD line, and mean nothing unless the
-// mismatch pulse is lit.
-#define WATCH_PULSES  (count_of(g_watch) + BUS_EVENT_COUNT + 1 + 4)
+// hardware, so the reading that matters is now "still complete".  The last two
+// name the block whose checksum failed, and mean nothing unless pulse 2 is lit.
+//
+// The AD-line nibble that used to sit here is gone: the mismatch pulse has been
+// dark on every reading, so four pulses were being spent decoding a number that
+// was always zero. It comes back if that ever changes.
+#define WATCH_PULSES  (count_of(g_watch) + BUS_EVENT_COUNT + 1 + 2)
 
 static inline void __not_in_flash_func(coverage_note)(uint32_t addr) {
     unsigned w = ((addr >> 13) & 7) - MPI_COVERAGE_FIRST;
@@ -161,8 +156,18 @@ static inline void __not_in_flash_func(watch_note)(uint32_t addr) {
         g_boot++;
         g_watch_hits = 0;
         g_mismatch = 0;
+        g_fail_block = 0;
+        g_last_sum = CHK_SUM_LOW;
         g_bus_hits = 1u << BUS_FIRST_IS_VECTOR;   // we saw this boot begin
     }
+    // The checksum's compare reads a different stored sum per block, directly
+    // behind the fetch of the compare's second word.  Remember which.
+    if (prev == CHK_CMP_EXT && addr >= CHK_SUM_LOW && addr <= CHK_SUM_LOW + 6) {
+        g_last_sum = addr;
+    } else if (addr == CHK_FAIL_ADDR && prev == CHK_FAIL_PREV) {
+        g_fail_block = (g_last_sum - CHK_SUM_LOW) >> 1;
+    }
+
     for (unsigned i = 0; i < count_of(g_watch); i++) {
         if (addr == g_watch[i].addr && prev == g_watch[i].prev) {
             g_watch_hits |= 1u << i;
@@ -417,10 +422,10 @@ int main(void) {
         if (covered) {
             hits |= 1u << (count_of(g_watch) + BUS_EVENT_COUNT);
         }
-        // Trailing nibble: which AD line disagreed, most significant bit first.
-        unsigned line = mismatch_ad_line(g_mismatch);
-        for (unsigned b = 0; b < 4; b++) {
-            if (line & (1u << (3 - b))) {
+        // Trailing pair: which block failed, most significant bit first.
+        unsigned block = g_fail_block & 3;
+        for (unsigned b = 0; b < 2; b++) {
+            if (block & (1u << (1 - b))) {
                 hits |= 1u << (count_of(g_watch) + BUS_EVENT_COUNT + 1 + b);
             }
         }

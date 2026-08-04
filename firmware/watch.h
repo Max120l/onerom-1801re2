@@ -190,4 +190,31 @@ enum {
 #define MPI_COVERAGE_WINDOWS  4         // the four the UKNC's ROMs occupy
 #define MPI_COVERAGE_FIRST    4         // window index of 100000
 
+// ---------------------------------------------------------------------------
+// Which block failed its checksum
+// ---------------------------------------------------------------------------
+//
+// The checksum failure is intermittent -- boots that print a CPU or CPU-RAM
+// error with no "- ОШИБКА ПЗУ" beside them are boots where all four blocks
+// verified -- and every theory about why has now been wrong twice. So stop
+// theorising and ask which block.
+//
+// The loop body is the same code for all four, so the fetch addresses cannot
+// tell them apart. The data does: the comparison is
+//
+//     160442  026503 176766   cmp 176766(r5), r3
+//
+// with r5 taking 8, 6, 4, 2 across the four blocks, so it reads its stored sum
+// from 176776, 176774, 176772 and 176770 in turn. That read lands immediately
+// behind the fetch of the instruction's second word at 160444 -- a pair, so the
+// summing loop cannot forge it while reading those same words as data on its
+// way down. Remember the last one seen, and a failure names its block.
+//
+//   176770 -> the 205, 100000-117777      176774 -> the 207, 140000-157777
+//   176772 -> the 206, 120000-137777      176776 -> the 208, 160000-176777
+#define CHK_CMP_EXT     0160444     // second word of the compare
+#define CHK_SUM_LOW     0176770     // lowest of the four stored sums
+#define CHK_FAIL_ADDR   0160450     // "inc r0": this block did not match
+#define CHK_FAIL_PREV   0160446     // ...reached by the beq falling through
+
 #endif // WATCH_H

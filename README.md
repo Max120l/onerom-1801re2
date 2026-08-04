@@ -415,6 +415,17 @@ checking. Being late costs wait states rather than data, which is the whole
 reason a CPU-in-the-loop ROM is viable on this bus; 430 ns against a 2.4 µs
 cycle is margin bought at no real price.
 
+**It changed nothing.** The frame came back identical. The setup time is kept
+because a slave asserting its reply before its data is valid is wrong however
+the machine behaves, and the cost is wait states — but it is not the fault, and
+that is the second mechanism proposed here that the hardware has refused.
+
+Which is the point at which guessing at mechanisms should stop. The failure is
+also intermittent: boots that print a CPU or CPU-RAM error with no
+`- ОШИБКА ПЗУ` beside them are boots where all four blocks verified, and the
+monitor prints the ROM line whenever the mask is non-zero. So the next thing to
+establish is not *why* but *which* — see pulses 8–9.
+
 ## The machine's own verdict: ЦП, not ПЗУ
 
 With coverage instrumented, the frame came back long on 1, 2, 6 and 7 — and all
@@ -892,7 +903,19 @@ is ever cleared, so a frame that changes between passes is itself a fact.
 | 5 | *(bus)* | the bus carried something other than what we drove |
 | 6 | *(bus)* | the first cycle of this boot was the power-up vector fetch — we won the startup race |
 | 7 | *(bus)* | all four windows fully covered: every word we serve was asked for |
-| 8–11 | *(bus)* | a 4-bit number, most significant first, naming the lowest AD line that read back wrong — **meaningless unless pulse 5 is lit** |
+| 8–9 | *(bus)* | a 2-bit number, most significant first, naming the block whose checksum failed — **meaningless unless pulse 2 is lit** |
+
+```
+00 = 205, 100000-117777      10 = 207, 140000-157777
+01 = 206, 120000-137777      11 = 208, 160000-176777
+```
+
+The loop body is the same code for all four blocks, so no fetch address
+distinguishes them. The data does: `cmp 176766(r5), r3` at 160442 reads its
+stored sum from 176776, 176774, 176772 and 176770 as r5 walks 8, 6, 4, 2, and
+that read lands directly behind the fetch of the instruction's second word at
+160444 — a pair, so the summing loop cannot forge it while reading those same
+words as data on its way down.
 
 **A frame describes one boot.** Hits were originally never cleared, which made a
 frame the union of every boot since the board was powered — and that ambiguity
