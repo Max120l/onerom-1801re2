@@ -350,6 +350,39 @@ instructions after the strobe while nRPLY alone is held high.
 The lesson generalises: an instrumented build has to be timing-identical to the
 one it is measuring, and OUT and SET see different pins.
 
+## The boot menu, seen
+
+With the plain watch build flashed, a restart followed by a **reset** produced
+the boot menu on the real machine for the first time. That is the single most
+important result in this file, and it changes the shape of the problem: nothing
+is missing and nothing is fundamentally wrong. The machine is *marginal*.
+
+The way it happened is the lead. A reset is not a power cycle — the board was
+already up, clocked and serving when the PP restarted. On a cold start it is
+not, and it cannot be:
+
+| | who is doing what |
+| --- | --- |
+| power applied | the PP leaves reset and fetches its power-up vector at 160000 |
+| meanwhile | the RP2350 runs its bootrom, sets up XIP, starts our code, sets the clock, loads two PIO programs, launches core 1 |
+
+Nothing in the firmware can make the bootrom faster, so if the machine asks
+before we are listening, its first reads go unanswered. A ROM that is missing
+for the first instructions of a startup sequence is exactly the kind of fault
+that is intermittent, that clears on a reset, and that leaves the machine in a
+state no amount of reading the ROM contents will explain.
+
+Pulse 9 tests it directly. The PP's first read after reset is its power-up
+vector, so if the first cycle we ever capture is 160000 we were in time; if it
+is anything else we came up mid-stream. **Long on reset and short on cold
+power-on confirms the race.**
+
+The prediction is worth making before the measurement, because it is cheap and
+sharp: *power on, wait a second, press reset* should boot far more reliably than
+a cold start. If it does, the ROM board is not at fault in any interesting
+sense — it is simply late, and the fix is to keep it powered or to hold the
+machine off until it is ready.
+
 ### The board is not the problem — superseded
 
 The reasoning below is left because it is still sound as far as it goes; it is
@@ -757,6 +790,7 @@ is ever cleared, so a frame that changes between passes is itself a fact.
 | 6 | 101006 after 101004 | the boot menu header was printed |
 | 7 | *(bus)* | a read inside one of our windows went unanswered because CS was deasserted |
 | 8 | *(bus)* | a reply was prepared and the host never took it |
+| 9 | *(bus)* | the first cycle we ever saw was the power-up vector fetch — we won the startup race |
 
 Pulses 7 and 8 are what the board did rather than what the machine executed.
 They exist because the two disagreed: the monitor reported a ROM block failing

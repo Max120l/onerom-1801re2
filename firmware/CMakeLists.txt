@@ -37,6 +37,14 @@ endif()
 option(MPI_RPLY_ASSIST "Assist the rising edge of nRPLY" OFF)
 target_compile_definitions(mpi_rom PRIVATE MPI_RPLY_ASSIST=$<BOOL:${MPI_RPLY_ASSIST}>)
 
+# System clock in kHz.  150000 is the RP2350's rated speed and the default; the
+# only reason to raise it is to shorten the address-to-reply path, which matters
+# only if replies are being assembled too late to be taken.
+set(MPI_SYS_CLK_KHZ "" CACHE STRING "System clock in kHz (default 150000)")
+if(MPI_SYS_CLK_KHZ)
+    target_compile_definitions(mpi_rom PRIVATE MPI_SYS_CLK_KHZ=${MPI_SYS_CLK_KHZ})
+endif()
+
 target_include_directories(mpi_rom PRIVATE ${CMAKE_CURRENT_LIST_DIR})
 
 target_link_libraries(mpi_rom

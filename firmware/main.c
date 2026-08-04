@@ -46,7 +46,9 @@
 // blinks when replies are prepared and not taken. If it ever blinks in normal
 // use, raise this; 200000 works at stock voltage and takes about a third off
 // the path.
+#ifndef MPI_SYS_CLK_KHZ
 #define MPI_SYS_CLK_KHZ  150000
+#endif
 
 #define SM_CAPTURE  0
 #define SM_RESPOND  1
@@ -89,6 +91,14 @@ static volatile uint32_t g_bus_hits;
 // see watch.h.
 static inline void __not_in_flash_func(watch_note)(uint32_t addr) {
     static uint32_t prev = 0xFFFFFFFF;
+    static bool first = true;
+
+    if (first) {
+        first = false;
+        if (addr == PP_POWERUP_VECTOR) {
+            g_bus_hits |= 1u << BUS_FIRST_IS_VECTOR;
+        }
+    }
     for (unsigned i = 0; i < count_of(g_watch); i++) {
         if (addr == g_watch[i].addr && prev == g_watch[i].prev) {
             g_watch_hits |= 1u << i;

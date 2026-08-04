@@ -103,7 +103,24 @@ typedef struct {
 enum {
     BUS_CS_DECLINED,        // a read in the CS-gated window went unanswered
     BUS_REPLY_UNTAKEN,      // a reply was prepared and the host never took it
+
+    // Were we awake before the machine started asking?
+    //
+    // The board takes its power from the socket, so it and the machine come out
+    // of reset together -- except that we have an RP2350 bootrom to run, a
+    // clock to set and two state machines to load first, while the PP starts
+    // fetching as soon as its own reset releases. Lose that race and the PP's
+    // first reads meet a ROM that is not answering yet.
+    //
+    // The PP's first read after reset is its power-up vector at 160000. So if
+    // the very first cycle we ever capture is 160000 we were in time, and if it
+    // is anything else we came up mid-stream and the machine has already been
+    // asking questions nobody answered.
+    BUS_FIRST_IS_VECTOR,
+
     BUS_EVENT_COUNT
 };
+
+#define PP_POWERUP_VECTOR  0160000
 
 #endif // WATCH_H
