@@ -538,6 +538,26 @@ ourselves. Reading ROM is harmless; only the address matters.
 | 8 | **the bit was already wrong on an immediate reread** — dead, not leaky |
 | 9–16 | bit 0…7 of the failing plane's byte |
 
+## Resolved
+
+With the chip on DC7 replaced, the plane test passes and the MS 0511 reaches the
+ЗАГРУЗКА menu, cursor blinking, in 80-column mode.
+
+The whole chain, in the order it was actually established rather than the order
+it was guessed: the board serves four windows of a Soviet mask ROM over a
+multiplexed bus; the machine's own monitor said its central processor's memory
+was bad; a test written for the peripheral processor, run from the ROM socket
+with the central processor held in reset, said plane 1; then bit 7; then that
+the bit was dead rather than leaky; and the schematic's data-line names put that
+bit on one 4164.
+
+Two things worth keeping from it. The board was never at fault — coverage, reply
+handshake, chip select, startup race and bus data all measured clean, and every
+failure that looked like the board's turned out to be either the machine or a
+bug in the instrument. And the instrument was wrong often enough that the habit
+of testing it against a model, rather than against the machine it was pointed
+at, is what made its answers worth anything.
+
 ## Which chips the planes are
 
 From the MS 0511 schematic, the RAM is 24 × K565RU5 (4164, 64K × 1) in two
