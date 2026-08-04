@@ -32,11 +32,13 @@ PLANE_WORDS = 0o1000
 class PlanePP(PP):
     """The PP, plus the three plane registers and the memory behind them.
 
-    broken is (plane, bit): that bit reads back low everywhere in that plane,
-    which is what a dead RAM chip in one bank looks like from here.
+    broken is (plane, bit); high says which way it is stuck. Both directions
+    exist -- the fault this was written for turned out to be a line stuck HIGH,
+    scoped on the bench -- and a test that only ever saw stuck-low would be
+    assuming the detection generalises rather than showing that it does.
     """
 
-    def __init__(self, rom, broken=None, leaky=False):
+    def __init__(self, rom, broken=None, leaky=False, high=False):
         super().__init__(rom)
         self.plane = [bytearray(PLANE_WORDS) for _ in range(3)]
         self.paddr = 0
@@ -46,6 +48,7 @@ class PlanePP(PP):
         # round. A dead one is wrong straight away. The test has to tell them
         # apart, so the model has to be able to be either.
         self.leaky = leaky
+        self.high = high
         self.last_written = None
         self.cpu_held = False
 
@@ -53,7 +56,10 @@ class PlanePP(PP):
         v = self.plane[p][addr]
         if self.broken and self.broken[0] == p:
             if not self.leaky or addr != self.last_written:
-                v &= ~(1 << self.broken[1]) & 0xFF
+                if self.high:
+                    v |= 1 << self.broken[1]
+                else:
+                    v &= ~(1 << self.broken[1]) & 0xFF
         return v
 
     def read(self, addr):
@@ -206,9 +212,9 @@ def status(pp):
     return pp.ram[a] | (pp.ram[a + 1] << 8)
 
 
-def run(label, broken, want, want_status, leaky=False):
+def run(label, broken, want, want_status, leaky=False, high=False):
     rom, _ = make_ramtest.build(ram_top=RAM_TOP, plane_words=PLANE_WORDS)
-    pp = PlanePP(rom, broken=broken, leaky=leaky)
+    pp = PlanePP(rom, broken=broken, leaky=leaky, high=high)
     entry = rom[make_ramtest.VECTOR - ROM_BASE] | \
         (rom[make_ramtest.VECTOR - ROM_BASE + 1] << 8)
     state = pp.run(entry, None, limit=4_000_000)
@@ -264,6 +270,11 @@ def main() -> int:
                     [B.B_ALIVE, B.B_PP_RAM_PASS, B.B_PLANE1_FAIL, B.B_DONE,
                      B.B_STUCK, B.B_BIT0 + 3],
                     B.RES_PP_RAM_OK | B.RES_PLANE1_BAD | B.RES_DONE | B.RES_STUCK)
+    failures += run("plane 1 bit 7 stuck HIGH -- the fault on the bench", (1, 7),
+                    [B.B_ALIVE, B.B_PP_RAM_PASS, B.B_PLANE1_FAIL, B.B_DONE,
+                     B.B_STUCK, B.B_BIT0 + 7],
+                    B.RES_PP_RAM_OK | B.RES_PLANE1_BAD | B.RES_DONE | B.RES_STUCK,
+                    high=True)
     failures += run("plane 1 bit 7 leaky: right at once, wrong later", (1, 7),
                     [B.B_ALIVE, B.B_PP_RAM_PASS, B.B_PLANE1_FAIL, B.B_DONE,
                      B.B_BIT0 + 7],
