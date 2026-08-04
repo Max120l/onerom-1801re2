@@ -50,6 +50,15 @@ option(MPI_BEACONS "Blink the test ROM's beacons rather than watchpoints" OFF)
 # Resolved before either is defined, so exactly one MPI_WATCH reaches the
 # compiler. Defining it twice and relying on the later flag winning is how the
 # next version of this bug gets written.
+# Show the last pass rather than every pass since power-on: a lamp for freeze
+# spray, where a latching frame can only ever say "it failed at some point".
+# See PP_BEACON_DONE in watch.h.  Pair with `make_ramtest.py --live`.
+option(MPI_BEACON_LIVE "Report only the most recent test pass" OFF)
+if(MPI_BEACON_LIVE AND NOT MPI_BEACONS)
+    message(STATUS "MPI_BEACON_LIVE implies MPI_BEACONS; enabling it")
+    set(MPI_BEACONS ON)
+endif()
+
 if(MPI_BEACONS AND NOT MPI_WATCH)
     message(STATUS "MPI_BEACONS implies MPI_WATCH; enabling it")
     set(MPI_WATCH ON)
@@ -57,7 +66,8 @@ endif()
 
 target_compile_definitions(mpi_rom PRIVATE
     MPI_WATCH=$<BOOL:${MPI_WATCH}>
-    MPI_BEACONS=$<BOOL:${MPI_BEACONS}>)
+    MPI_BEACONS=$<BOOL:${MPI_BEACONS}>
+    MPI_BEACON_LIVE=$<BOOL:${MPI_BEACON_LIVE}>)
 
 # System clock in kHz.  150000 is the RP2350's rated speed and the default; the
 # only reason to raise it is to shorten the address-to-reply path, which matters

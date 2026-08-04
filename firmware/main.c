@@ -50,6 +50,13 @@
 #define MPI_SYS_CLK_KHZ  150000
 #endif
 
+// The CMake option resolves this, but a hand-rolled -D would not, and the
+// failure would be a firmware that compiles and reports nothing -- which is the
+// exact shape of the MPI_BEACONS-without-MPI_WATCH bug, already made once.
+#if MPI_BEACON_LIVE && !MPI_BEACONS
+#error "MPI_BEACON_LIVE needs MPI_BEACONS (and MPI_WATCH); use the CMake option"
+#endif
+
 #define SM_CAPTURE  0
 #define SM_RESPOND  1
 
@@ -114,6 +121,12 @@ static volatile unsigned g_fail_block;
 // its report rather than the stock monitor's behaviour.  One pulse per beacon.
 static volatile uint32_t g_beacons;
 #define WATCH_PULSES  PP_BEACON_COUNT
+#if MPI_BEACON_LIVE
+// The last completed pass, and a counter so core 0 can tell a new verdict from
+// a repeat of the old one.  See PP_BEACON_DONE in watch.h.
+static volatile uint32_t g_beacons_last;
+static volatile uint32_t g_pass;
+#endif
 #else
 #define WATCH_PULSES  (count_of(g_watch) + BUS_EVENT_COUNT + 1 + 2)
 #endif
@@ -176,7 +189,18 @@ static inline void __not_in_flash_func(watch_note)(uint32_t addr) {
     // every strobe on the bus, so the read is visible anyway.
     uint32_t off = addr - PP_BEACON_BASE;
     if (off < 2 * PP_BEACON_COUNT) {
-        g_beacons |= 1u << (off >> 1);
+        unsigned b = off >> 1;
+        g_beacons |= 1u << b;
+#if MPI_BEACON_LIVE
+        // End of a pass: publish it and start the next one empty. Done here
+        // rather than on core 0 so the snapshot and the clear cannot be split
+        // by a pass boundary, which would drop a whole pass's verdict.
+        if (b == PP_BEACON_DONE) {
+            g_beacons_last = g_beacons;
+            g_beacons = 0;
+            g_pass++;
+        }
+#endif
     }
 #endif
 
@@ -429,7 +453,53 @@ int main(void) {
 
     multicore_launch_core1(serve_forever);
 
-#if MPI_WATCH
+#if MPI_BEACON_LIVE
+    // A lamp rather than a frame: what the *last* pass found, not what has ever
+    // been found.  Seventeen pulses take a quarter of a minute to read, which is
+    // fine for a verdict and useless for freeze spray, where the question is
+    // whether the machine recovered in the two seconds since the chip got cold.
+    //
+    // See PP_BEACON_DONE in watch.h for the reading.
+    {
+        uint32_t last_pass = 0;
+        unsigned stale_ms = 0, tick = 0;
+        bool faulty = false;
+        while (true) {
+            uint32_t pass = g_pass;
+            tick++;
+            if (pass != last_pass) {
+                last_pass = pass;
+                stale_ms = 0;
+                faulty = (g_beacons_last & PP_BEACON_FAIL_MASK) != 0;
+                if (!faulty) {
+                    // A clean pass still has to look like something, or "all
+                    // well" and "board dead" are the same dark LED.
+                    gpio_put(GPIO_STATUS_LED, STATUS_LED_ON);
+                    sleep_ms(60);
+                }
+            } else if (stale_ms < 60000) {
+                stale_ms += 25;
+            }
+
+            if (stale_ms >= 15000) {
+                // Nothing has finished a pass in fifteen seconds. A pass takes
+                // a few, so this is the PP hung or the bus gone -- worth its own
+                // signal, because otherwise it reads as a very clean machine.
+                // Phase off a free-running tick, not off stale_ms: that is
+                // clamped so it cannot overflow, and a clamped counter makes the
+                // flicker stop dead -- leaving a hung machine showing a steady
+                // LED, which is one of the two readings it must not look like.
+                gpio_put(GPIO_STATUS_LED,
+                         (tick / 4) & 1 ? STATUS_LED_ON : STATUS_LED_OFF);
+            } else {
+                gpio_put(GPIO_STATUS_LED, faulty ? STATUS_LED_ON : STATUS_LED_OFF);
+            }
+            sleep_ms(25);
+        }
+    }
+#endif
+
+#if MPI_WATCH && !MPI_BEACON_LIVE
     // Blink the watchpoint results out, one frame per pass: a long dark gap to
     // mark the start, then one pulse per watchpoint in table order -- long for
     // hit, short for miss.  Every watchpoint gets a pulse whether or not it hit,

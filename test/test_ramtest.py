@@ -262,6 +262,45 @@ def run(label, broken, want, want_status, leaky=False, high=False, flaky=False,
     return not ok
 
 
+def passes_of(pp):
+    """Split the beacon stream into one list per pass, on the DONE beacon."""
+    out, cur = [], []
+    for b in pp.beacons:
+        cur.append(b)
+        if b == make_ramtest.B_DONE:
+            out.append(sorted(set(cur)))
+            cur = []
+    return out
+
+
+def run_live(label, want_passes, want_status, **kw):
+    """The --live image, checked pass by pass rather than in aggregate.
+
+    Latching and live are the same program with the clears in a different place,
+    and the whole value of the live one is a property the latching one is built
+    not to have: a verdict that can go back to clean. Freeze spray depends on
+    exactly that, so it is worth showing rather than assuming -- an accumulator
+    left outside the loop by mistake would still pass every check above.
+    """
+    rom, _ = make_ramtest.build(ram_top=RAM_TOP, plane_words=PLANE_WORDS,
+                                live=True)
+    pp = PlanePP(rom, **kw)
+    entry = rom[make_ramtest.VECTOR - ROM_BASE] | \
+        (rom[make_ramtest.VECTOR - ROM_BASE + 1] << 8)
+    state = pp.run(entry, None, limit=4_000_000)
+    got = passes_of(pp)
+    st = status(pp)
+    want = [sorted(p) for p in want_passes]
+    ok = got == want and pp.cpu_held and st == want_status
+    print(f"  {label}")
+    print(f"    {state}, status {st:06o}")
+    for i, p in enumerate(got):
+        print(f"      pass {i + 1}: {p}")
+    if not ok:
+        print(f"    FAIL: expected {want}, status {want_status:06o}")
+    return not ok
+
+
 def check_shipped_defaults():
     """The constants the flashed image actually uses.
 
@@ -332,6 +371,23 @@ def main() -> int:
                     [B.B_ALIVE, B.B_PP_RAM_FAIL, B.B_PLANE_PASS, B.B_DONE,
                      B.B_ALL_AT_ONCE] + [B.B_BIT0 + i for i in range(8)],
                     B.RES_DONE, pp_all=True)
+
+    print("\nlive mode -- each pass reports only itself:\n")
+    clean = [B.B_ALIVE, B.B_PP_RAM_PASS, B.B_PLANE_PASS, B.B_DONE]
+    failures += run_live("healthy machine, three clean passes",
+                         [clean, clean, clean],
+                         B.RES_PP_RAM_OK | B.RES_DONE)
+    # The one that matters. In latching mode this fault is lit for good from the
+    # moment it first appears; here pass 3 has to come back clean, or cooling the
+    # guilty chip would look exactly like cooling an innocent one.
+    failures += run_live("plane 1 bit 7 on pass 2 only: the lamp must clear",
+                         [clean,
+                          [B.B_ALIVE, B.B_PP_RAM_PASS, B.B_PLANE1_FAIL,
+                           B.B_STUCK, B.B_BIT0 + 7, B.B_DONE],
+                          clean],
+                         B.RES_PP_RAM_OK | B.RES_DONE,
+                         broken=(1, 7), flaky=True)
+
     print("\n" + ("all checks passed" if not failures else f"{failures} failure(s)"))
     return 1 if failures else 0
 

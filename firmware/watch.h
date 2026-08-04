@@ -280,6 +280,38 @@ enum {
 #define PP_BEACON_BASE   0176700
 #define PP_BEACON_COUNT  17
 
+// ---------------------------------------------------------------------------
+// Live mode, for freeze spray
+// ---------------------------------------------------------------------------
+//
+// The frame above latches: g_beacons is set-only, and the only thing that ever
+// clears it is a restart. That is right for "did this machine ever fail", and
+// exactly wrong for the workflow of cooling one chip at a time and watching for
+// the machine to come back -- a fault that has been lit since pass 400 stays lit
+// however cold the guilty part gets, so the instrument says nothing about what
+// the freeze spray just did.
+//
+// -DMPI_BEACON_LIVE=ON turns the LED into a lamp for the *last completed pass*
+// instead. The test ROM's DONE beacon marks the end of a pass, so that is the
+// natural boundary: on DONE, core 1 snapshots the beacons and clears them.
+//
+//   steady on            the last pass failed
+//   dark, blipping       the last pass was clean (the blip is one pass ending)
+//   fast flicker         no pass has finished in fifteen seconds -- the PP is
+//                        stuck, which is itself a symptom
+//
+// Pair it with an image from `make_ramtest.py --live`, which clears the ROM's
+// own accumulators at the top of each pass. Either half alone still latches:
+// the firmware would clear a mask the ROM keeps re-asserting, or the ROM would
+// forget a fault the firmware keeps displaying.
+#define PP_BEACON_DONE   6
+
+// Which beacons mean "this pass was not clean". Everything that is not one of
+// the four positive reports: PP RAM bad, either plane bad, stuck, all-bits-at-
+// once, and the eight per-bit pulses.
+#define PP_BEACON_OK_MASK   ((1u << 0) | (1u << 1) | (1u << 3) | (1u << 6))
+#define PP_BEACON_FAIL_MASK (((1u << PP_BEACON_COUNT) - 1u) & ~PP_BEACON_OK_MASK)
+
 #define CHK_CMP_EXT     0160444     // second word of the compare
 #define CHK_SUM_LOW     0176770     // lowest of the four stored sums
 #define CHK_FAIL_ADDR   0160450     // "inc r0": this block did not match

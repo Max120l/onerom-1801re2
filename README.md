@@ -537,6 +537,7 @@ ourselves. Reading ROM is harmless; only the address matters.
 | 7 | finished |
 | 8 | **the bit was already wrong on an immediate reread** — dead, not leaky |
 | 9–16 | bit 0…7 of the failing plane's byte |
+| 17 | **every bit position failed within a single pass** — not a chip, a subsystem |
 
 ## Still open: the thermal fault
 
@@ -574,6 +575,66 @@ on only one pass in three, rather than leaving it as a claim.
 And a clean frame after a long hot soak is just as useful: it would put the
 thermal fault outside all three RAM planes, which is most of what is easy to
 suspect.
+
+### What the soak actually reported
+
+Two frames, minutes apart, from a cold start:
+
+```
+l l s l s s l s s s s s s s s s s     healthy: alive, PP RAM ok, planes ok, done
+l l l l l l l l l l l l l l l l l     everything, including pulses 8 and 17
+```
+
+There is no third reading between them. That absence is the finding. A weak cell
+warming past its retention limit fails **one** bit, in **one** plane, and the
+frame grows a pulse at a time; this goes from a completely clean pass to every
+bit of every plane, plus pulse 8 (wrong on an immediate reread, so microseconds
+after the write, which no retention failure can reach) and pulse 17 (all eight
+bit positions lost inside a single pass).
+
+Three banks on two different physical groups of chips do not degrade in unison.
+Whatever they share does — the RAS/CAS timing and refresh generator that drives
+all 24 chips, or a supply local to the array. Both of those fail as a step, and
+that is exactly the shape of the reading.
+
+### Live mode, for freeze spray
+
+The latching frame answers "does this machine ever fail". It cannot answer "did
+cooling *this* chip just fix it", because it is built not to: `g_beacons` is
+set-only, cleared only when the PP restarts, and the ROM's accumulators sit
+outside its loop. A fault lit on pass four hundred stays lit however cold the
+guilty part gets. For chasing a thermal fault with a can of freeze spray that
+makes it worse than useless — it will report a fault for as long as the machine
+is powered, no matter what you do to the board.
+
+So there is a second pairing that reports only the **most recent pass**:
+
+```console
+$ ./tools/make_ramtest.py --live -o ramsoak-live.bin
+$ ./tools/gen_rom_images.py --logical ramsoak-live.bin -o firmware/rom_images.c
+$ cmake -S firmware -B firmware/build-live -G Ninja -DMPI_BEACON_LIVE=ON
+$ cmake --build firmware/build-live
+```
+
+`--live` moves the clears inside the loop, so each pass starts from nothing;
+`-DMPI_BEACON_LIVE=ON` makes core 1 snapshot and clear the beacons on the DONE
+beacon, which is the pass boundary. Both halves are needed — either alone still
+latches, one because the ROM keeps re-asserting a mask the firmware clears, the
+other because the firmware keeps displaying a fault the ROM has forgotten.
+
+The LED stops being a frame and becomes a lamp:
+
+| | |
+| --- | --- |
+| steady on | the last pass failed |
+| dark, with a brief blip each pass | the last pass was clean |
+| fast flicker | no pass has completed in fifteen seconds — the PP is stuck |
+
+A pass takes a few seconds, so the lamp follows the machine closely enough to
+spray one chip and watch. `test/test_ramtest.py` checks the property this whole
+mode exists for: a fault present on pass 2 only must leave pass 3 reporting
+clean, because otherwise cooling the guilty chip looks identical to cooling an
+innocent one.
 
 ## Resolved
 

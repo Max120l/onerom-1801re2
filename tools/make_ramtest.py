@@ -112,7 +112,18 @@ B_BIT0 = 8
 B_ALL_AT_ONCE = 16
 BEACON_COUNT = 17
 
-def program(ram_top, plane_words):
+def program(ram_top, plane_words, live=False):
+    # Where the accumulators get cleared is the whole difference between the two
+    # modes, so it is one string placed in one of two positions rather than two
+    # copies of the program.
+    reset = f"""
+        mov #{BEACON + 2 * B_ALIVE:o}, r1
+        tst (r1)
+        clr r5
+        clr @#{IMMEDIATE:o}
+        clr @#{RESULT_MASK:o}
+        clr r6
+"""
     return f"""
 ; ---- hold the central processor in reset for the whole test
 ;      Bit 5 of 177716 is its DCLO pin. With the CPU stopped, nothing else can
@@ -120,26 +131,30 @@ def program(ram_top, plane_words):
 ;      trouble is a CPU running wild on corrupt code, this removes it as a
 ;      variable rather than reasoning about it.
         mov #40, @#177716
-
-        mov #{BEACON + 2 * B_ALIVE:o}, r1
-        tst (r1)
-        clr r5
-        clr @#{IMMEDIATE:o}
-        clr @#{RESULT_MASK:o}
-        clr r6
-
+{"" if live else reset}
 ; ---- everything below runs in a loop, for as long as the machine is left on.
 ;      A fault that only appears once the board is warm cannot be caught by a
 ;      test that runs once and parks; it needs the machine hot and something
-;      still asking. r5 and the two memory masks accumulate across passes, and
-;      the beacons latch in the firmware, so a bit that fails on pass 400 lights
-;      its pulse and stays lit.
+;      still asking.
 ;
-;      One consequence worth reading deliberately: on an intermittent fault both
-;      "planes passed" and "plane N failed" end up lit, because both happened.
-;      That combination is the signature of intermittency, and a hard fault
-;      cannot produce it.
+;      Two modes, and they differ only in where the clears above sit.
+;
+;      Latching (the default): r5 and the two memory masks accumulate across
+;      passes, and the beacons latch in the firmware, so a bit that fails on
+;      pass 400 lights its pulse and stays lit. This is the right instrument for
+;      "does this machine ever fail, and how". One consequence worth reading
+;      deliberately: on an intermittent fault both "planes passed" and "plane N
+;      failed" end up lit, because both happened. That combination is the
+;      signature of intermittency, and a hard fault cannot produce it.
+;
+;      Live (--live): the clears move inside the loop, so each pass reports only
+;      itself and the verdict can go clean again. Nothing about the latching
+;      version can do that -- it is designed not to -- which makes it useless for
+;      freeze spray, where the whole question is whether cooling *this* chip
+;      fixes the machine within the next few seconds. Pair with a firmware built
+;      -DMPI_BEACON_LIVE=ON, which clears its own copy on the DONE beacon.
 soak:
+{reset if live else ""}
 
 ; ---- the PP's own RAM first, so a failure here is not mistaken for a plane
 ;      fault. Two passes: each word holds its address, then its complement, so
@@ -346,7 +361,7 @@ park:   bis #{RES_DONE:o}, r5
 """
 
 
-def build(ram_top=PP_RAM_TOP, plane_words=PLANE_WORDS):
+def build(ram_top=PP_RAM_TOP, plane_words=PLANE_WORDS, live=False):
     """Assemble the test.  The two sizes are arguments so that the simulator in
     test/test_ramtest.py can exercise the same code over a small memory in
     seconds; the image that gets flashed uses the real ones."""
@@ -373,7 +388,7 @@ def build(ram_top=PP_RAM_TOP, plane_words=PLANE_WORDS):
         rom[off:off + 2 * len(words)] = struct.pack(f"<{len(words)}H", *words)
 
     put(VECTOR, [ENTRY, 0o340])          # PC, PSW with interrupts masked
-    _, code = assemble(program(ram_top, plane_words), ENTRY)
+    _, code = assemble(program(ram_top, plane_words, live), ENTRY)
     put(ENTRY, code)
     return bytes(rom), code
 
@@ -382,9 +397,12 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("-o", "--output", type=Path, required=True)
+    ap.add_argument("--live", action="store_true",
+                    help="report each pass on its own instead of accumulating; "
+                         "pair with firmware built -DMPI_BEACON_LIVE=ON")
     args = ap.parse_args()
 
-    rom, code = build()
+    rom, code = build(live=args.live)
     args.output.write_bytes(rom)
     print(f"wrote {args.output}: {len(rom)} bytes, {len(code)} words of code")
     print(f"  power-up vector at {VECTOR:06o} -> {ENTRY:06o}")
