@@ -77,9 +77,26 @@
 // test (174154 after 174152) have all answered consistently -- RAM clean, no
 // error line, startup completes -- and every pulse spent re-confirming them is
 // a pulse the reader has to count past.
+// 160342 and 160374 are the central processor's entire reset. It has none of
+// its own: CMotherboard::Reset touches only the PP's DCLO and ACLO pins, and
+// the CPU's are driven exclusively by the PP writing port 177716. So the CPU
+// starts if and only if the PP executes, out of our ROM:
+//
+//   160332  mov #40, @#177716      hold it: DCLO asserted
+//   160340  jsr pc, 173252         load its memory through the plane ports
+//   160360  clr @#177716           release DCLO
+//   160364  mov #100, r0 / sob     settle
+//   160372  mov #100000, @#177716  release ACLO -- the edge that starts it
+//
+// A 1801 starts on the falling edge of ACLO with DCLO already low, so that last
+// write *is* the CPU's power-on. Watching the jsr and the ACLO release
+// separates "the CPU was never started" from "the CPU was started and failed",
+// which is otherwise guesswork -- and both are instructions read from us.
 #define MPI_WATCH_PAIRS { \
     { 0160302, 0160300 }, \
     { 0160450, 0160446 }, \
+    { 0160342, 0160340 }, \
+    { 0160374, 0160372 }, \
     { 0101006, 0101004 }, \
 }
 #define MPI_WATCH_MAX   8

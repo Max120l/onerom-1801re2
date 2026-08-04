@@ -32,6 +32,8 @@ EXPECTED = {
     0o172764: "jsr r5, 117204",
     0o174152: "mov #2000, sp",
     0o101004: "mov #4, r0",
+    0o160340: "jsr pc, 173252",
+    0o160372: "mov #100000, @#177716",
 }
 
 # Single-word instructions that reach the next word with no bus cycle in

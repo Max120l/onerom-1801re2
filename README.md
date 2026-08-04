@@ -426,6 +426,54 @@ also intermittent: boots that print a CPU or CPU-RAM error with no
 monitor prints the ROM line whenever the mask is non-zero. So the next thing to
 establish is not *why* but *which* — see pulses 8–9.
 
+## How the two processors are reset, and why it matters here
+
+Worth stating plainly, because it constrains everything above.
+
+**The peripheral processor is the only one with a real reset.** It takes DCLO
+and ACLO from the machine's power-on circuitry, and a 1801 starts on the
+*falling edge of ACLO with DCLO already low* — an edge, not a level. In the
+emulator that is the whole of `CMotherboard::Reset()`: assert both pins on the
+PPU, clear the peripherals, release both. Nothing else in the machine is reset
+by hardware.
+
+**The central processor has no reset of its own at all.** Its DCLO, ACLO and
+HALT pins are driven exclusively by the PP writing port 177716 — bit 5 is DCLO,
+bit 15 is ACLO, bit 4 is HALT. `Reset()` never touches them. So the CPU starts
+if and only if the PP executes this, out of our ROM:
+
+```
+160332  mov #40, @#177716      hold it: DCLO asserted
+160340  jsr pc, 173252         load its memory through the plane ports
+160360  clr @#177716           release DCLO
+160364  mov #100, r0 / sob     settle, a few hundred microseconds
+160372  mov #100000, @#177716  release ACLO -- the edge that starts it
+```
+
+Two consequences.
+
+**The CPU's power-on is five instructions read from this board.** A single word
+misread anywhere in 160332–160376 and the central processor is never started, or
+started with the wrong pin sequence, or started before its memory was loaded.
+That is a direct route from "an occasional bad ROM read" to `- ОШИБКА ЦП`, and
+it does not require the CPU or its RAM to be faulty at all. Pulses 3 and 4 watch
+the two ends of it, which separates *the CPU was never started* from *the CPU was
+started and failed* — otherwise pure guesswork.
+
+**The PP's own start is an edge from an ageing supervisor.** If that circuit
+releases ACLO before the rails have settled, the PP starts erratically, and the
+symptom is intermittent trouble that clears on a manual reset — which is the
+pattern this machine has shown throughout, including the one boot that reached
+the menu. It is also indistinguishable, from the outside, from our own startup
+race: the board must be serving before that edge arrives, and nothing in the
+firmware can outrun the RP2350 bootrom. Pulse 8 tells the two apart, because it
+is short only when the machine asked before we were listening.
+
+So yes — it could be a contributor, and it is worth a scope on the reset line at
+power-on to see whether ACLO comes up cleanly or chatters. A supervisor that
+retriggers would show as the frame's bits appearing and vanishing between
+passes, since each start clears them.
+
 ## Testing the central processor's RAM from the other side
 
 `- ОШИБКА ОЗУ ЦП` is the machine saying its central processor's memory is bad,
@@ -1016,12 +1064,14 @@ is ever cleared, so a frame that changes between passes is itself a fact.
 | --- | --- | --- |
 | 1 | 160302 after 160300 | the monitor started from our vector — if this is short, stop, nothing else means anything |
 | 2 | 160450 after 160446 | a ROM block failed its checksum |
-| 3 | 101006 after 101004 | the boot menu header was printed |
-| 4 | *(bus)* | a reply was prepared and the host never took it |
-| 5 | *(bus)* | the bus carried something other than what we drove |
-| 6 | *(bus)* | the first cycle of this boot was the power-up vector fetch — we won the startup race |
-| 7 | *(bus)* | all four windows fully covered: every word we serve was asked for |
-| 8–9 | *(bus)* | a 2-bit number, most significant first, naming the block whose checksum failed — **meaningless unless pulse 2 is lit** |
+| 3 | 160342 after 160340 | the PP called the routine that loads the central processor's memory |
+| 4 | 160374 after 160372 | **the PP released the central processor** — the ACLO edge that starts it |
+| 5 | 101006 after 101004 | the boot menu header was printed |
+| 6 | *(bus)* | a reply was prepared and the host never took it |
+| 7 | *(bus)* | the bus carried something other than what we drove |
+| 8 | *(bus)* | the first cycle of this boot was the power-up vector fetch — we won the startup race |
+| 9 | *(bus)* | all four windows fully covered: every word we serve was asked for |
+| 10–11 | *(bus)* | a 2-bit number, most significant first, naming the block whose checksum failed — **meaningless unless pulse 2 is lit** |
 
 ```
 00 = 205, 100000-117777      10 = 207, 140000-157777
