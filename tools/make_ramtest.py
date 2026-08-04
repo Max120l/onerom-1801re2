@@ -102,7 +102,15 @@ PPMASK = 0o077666                    # a copy for the emulator; r6 is the truth
 # failing plane's byte. In a bank built from 1-bit-wide DRAM each bit is one
 # chip, so this turns "plane 1 is bad" into a list of parts to unsolder.
 B_BIT0 = 8
-BEACON_COUNT = 16
+
+# One more, and it is the one that separates a bad chip from a bad machine.
+# Bits accumulate across a soak, so "every bit failed at some point" can mean
+# eight marginal cells in eight different banks -- unlikely -- or the whole
+# memory going away at once, repeatedly. This fires only if a *single pass* lost
+# every bit position, which no collection of independent weak cells does and
+# which losing refresh, the RAS/CAS timing, or the supply rail does every time.
+B_ALL_AT_ONCE = 16
+BEACON_COUNT = 17
 
 def program(ram_top, plane_words):
     return f"""
@@ -302,7 +310,13 @@ bits:   mov r3, r2
         swab r4
         bis r4, r2
         bic #177400, r2
-        mov #{BEACON + 2 * B_BIT0:o}, r1
+
+;      Every bit position wrong in one pass: not a chip, a subsystem.
+        cmp r2, #377
+        bne notall
+        mov #{BEACON + 2 * B_ALL_AT_ONCE:o}, r1
+        tst (r1)
+notall: mov #{BEACON + 2 * B_BIT0:o}, r1
         mov #10, r0
 bloop:  bit #1, r2
         beq bskip

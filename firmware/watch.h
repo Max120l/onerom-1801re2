@@ -278,7 +278,7 @@ enum {
 // -DMPI_BEACONS=ON replaces the monitor watchpoints in the LED frame with one
 // pulse per beacon. Keep in step with tools/make_ramtest.py.
 #define PP_BEACON_BASE   0176700
-#define PP_BEACON_COUNT  16
+#define PP_BEACON_COUNT  17
 
 #define CHK_CMP_EXT     0160444     // second word of the compare
 #define CHK_SUM_LOW     0176770     // lowest of the four stored sums

@@ -39,7 +39,7 @@ class PlanePP(PP):
     """
 
     def __init__(self, rom, broken=None, leaky=False, high=False, flaky=False,
-                 pp_bit=None):
+                 pp_bit=None, pp_all=False):
         super().__init__(rom)
         self.plane = [bytearray(PLANE_WORDS) for _ in range(3)]
         self.paddr = 0
@@ -58,6 +58,9 @@ class PlanePP(PP):
         # the video tag list lives in. The PP reads words from it, and a failing
         # data line shows in both bytes of every word, so model it that way.
         self.pp_bit = pp_bit
+        # The whole of PP RAM reading back as zero, which is what losing refresh
+        # or the supply looks like from here -- as opposed to one weak cell.
+        self.pp_all = pp_all
         self.last_written = None
         self.cpu_held = False
 
@@ -91,6 +94,8 @@ class PlanePP(PP):
         if addr == 0o177716:
             return 0o40 if self.cpu_held else 0
         v = super().read(addr)
+        if self.pp_all and addr < 0o100000:
+            return 0
         if self.pp_bit is not None and addr < 0o100000:
             v &= ~((1 << self.pp_bit) | (1 << (self.pp_bit + 8))) & 0xFFFF
         return v
@@ -240,14 +245,15 @@ def status(pp):
 
 
 def run(label, broken, want, want_status, leaky=False, high=False, flaky=False,
-        pp_bit=None):
+        pp_bit=None, pp_all=False):
     rom, _ = make_ramtest.build(ram_top=RAM_TOP, plane_words=PLANE_WORDS)
     pp = PlanePP(rom, broken=broken, leaky=leaky, high=high, flaky=flaky,
-                 pp_bit=pp_bit)
+                 pp_bit=pp_bit, pp_all=pp_all)
     entry = rom[make_ramtest.VECTOR - ROM_BASE] | \
         (rom[make_ramtest.VECTOR - ROM_BASE + 1] << 8)
     state = pp.run(entry, None, limit=4_000_000)
     got, st = beacon_set(pp), status(pp)
+    want = sorted(want)          # beacon_set is sorted; the caller need not be
     ok = got == want and pp.cpu_held and st == want_status
     print(f"  {label}")
     print(f"    {state}, beacons {got}, status {st:06o}, CPU held: {pp.cpu_held}")
@@ -322,6 +328,10 @@ def main() -> int:
                     [B.B_ALIVE, B.B_PP_RAM_FAIL, B.B_PLANE_PASS, B.B_DONE,
                      B.B_BIT0 + 5],
                     B.RES_DONE, pp_bit=5)
+    failures += run("PP RAM gone entirely -- refresh or supply, not a chip", None,
+                    [B.B_ALIVE, B.B_PP_RAM_FAIL, B.B_PLANE_PASS, B.B_DONE,
+                     B.B_ALL_AT_ONCE] + [B.B_BIT0 + i for i in range(8)],
+                    B.RES_DONE, pp_all=True)
     print("\n" + ("all checks passed" if not failures else f"{failures} failure(s)"))
     return 1 if failures else 0
 
