@@ -107,6 +107,21 @@ def program(ram_top, plane_words):
         mov #{BEACON + 2 * B_ALIVE:o}, r1
         tst (r1)
         clr r5
+        clr @#{IMMEDIATE:o}
+        clr @#{RESULT_MASK:o}
+
+; ---- everything below runs in a loop, for as long as the machine is left on.
+;      A fault that only appears once the board is warm cannot be caught by a
+;      test that runs once and parks; it needs the machine hot and something
+;      still asking. r5 and the two memory masks accumulate across passes, and
+;      the beacons latch in the firmware, so a bit that fails on pass 400 lights
+;      its pulse and stays lit.
+;
+;      One consequence worth reading deliberately: on an intermittent fault both
+;      "planes passed" and "plane N failed" end up lit, because both happened.
+;      That combination is the signature of intermittency, and a hard fault
+;      cannot produce it.
+soak:
 
 ; ---- the PP's own RAM first, so a failure here is not mistaken for a plane
 ;      fault. Two passes: each word holds its address, then its complement, so
@@ -195,7 +210,7 @@ qi2:    mov r0, r2
         cmp r0, #{plane_words:o}
         blo qi2
 
-        mov r3, @#{IMMEDIATE:o}
+        bis r3, @#{IMMEDIATE:o}
         clr r3
 
         clr r0
@@ -288,31 +303,11 @@ finish: tst @#{IMMEDIATE:o}
 ;      it, then park, beaconing so the board can tell "finished" from "hung"
 park:   bis #{RES_DONE:o}, r5
         mov r5, @#{RESULT:o}
-        mov r3, @#{RESULT_MASK:o}
+        bis r3, @#{RESULT_MASK:o}
         mov #{BEACON + 2 * B_DONE:o}, r1
-        clr r2
+        tst (r1)
+        jmp @#soak
 
-; ---- and then sit there driving every plane data line, for the scope.
-;
-;      Parking silently wasted the one thing a bench probe needs: a stimulus
-;      where every bit is doing the same thing. The test's own pattern is the
-;      opposite of that -- it writes the address as the data, so bit 0 of the
-;      low byte toggles on every single write while bit 7 toggles once per 128.
-;      A healthy bit 7 looks sluggish next to bit 0 for that reason alone, and
-;      comparing them says nothing.
-;
-;      Writing all-zeros then all-ones to one address toggles all sixteen lines
-;      at the same rate, so every bit becomes comparable with every other -- and
-;      in particular bit 7 of plane 1 with bit 7 of plane 2, which is the same
-;      position in the same kind of chip and the only fair comparison there is.
-;      A weak or dead line stands out against its own twin.
-;
-;      The beacon read stays in the loop so the LED keeps reporting.
-spin:   tst (r1)
-        mov r2, @#177010
-        clr @#177014
-        mov #177777, @#177014
-        br spin
 """
 
 

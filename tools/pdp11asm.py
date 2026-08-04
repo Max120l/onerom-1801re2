@@ -22,7 +22,8 @@ REGS = {f"r{i}": i for i in range(8)} | {"sp": 6, "pc": 7}
 DOUBLE = {"mov": 0o010000, "cmp": 0o020000, "bit": 0o030000,
           "bic": 0o040000, "bis": 0o050000, "add": 0o060000,
           "movb": 0o110000, "cmpb": 0o120000, "sub": 0o160000}
-SINGLE = {"clr": 0o005000, "com": 0o005100, "inc": 0o005200,
+SINGLE = {"jmp": 0o000100,
+          "clr": 0o005000, "com": 0o005100, "inc": 0o005200,
           "dec": 0o005300, "neg": 0o005400, "tst": 0o005700,
           "asr": 0o006200, "asl": 0o006300, "sxt": 0o006700,
           "swab": 0o000300,

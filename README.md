@@ -538,6 +538,29 @@ ourselves. Reading ROM is harmless; only the address matters.
 | 8 | **the bit was already wrong on an immediate reread** — dead, not leaky |
 | 9–16 | bit 0…7 of the failing plane's byte |
 
+## Still open: the thermal fault
+
+The dead bit is fixed and the machine boots, runs its own diagnostic and takes
+keyboard input — but it still degrades as it warms, which a hard stuck bit
+cannot do. So there is a second fault, softer than the first, and it needs a
+different kind of measurement: the machine hot, and something still asking.
+
+The plane test now **soaks** rather than parking. It loops for as long as the
+machine is left on, and because the firmware's beacon bits are set-only, a bit
+that fails on pass four hundred lights its pulse and stays lit. Leave it running
+an hour and read the frame afterwards.
+
+One combination is worth reading deliberately: on an intermittent fault **both
+"planes passed" and "plane N failed" end up lit**, because over hundreds of
+passes both happened. A hard fault cannot produce that pairing, so the frame
+distinguishes "always broken" from "sometimes broken" without any timing
+information at all. `test/test_ramtest.py` demonstrates it with a fault present
+on only one pass in three, rather than leaving it as a claim.
+
+And a clean frame after a long hot soak is just as useful: it would put the
+thermal fault outside all three RAM planes, which is most of what is easy to
+suspect.
+
 ## Resolved
 
 With the chip on DC7 replaced, the plane test passes and the MS 0511 reaches the

@@ -38,7 +38,7 @@ class PlanePP(PP):
     assuming the detection generalises rather than showing that it does.
     """
 
-    def __init__(self, rom, broken=None, leaky=False, high=False):
+    def __init__(self, rom, broken=None, leaky=False, high=False, flaky=False):
         super().__init__(rom)
         self.plane = [bytearray(PLANE_WORDS) for _ in range(3)]
         self.paddr = 0
@@ -49,12 +49,18 @@ class PlanePP(PP):
         # apart, so the model has to be able to be either.
         self.leaky = leaky
         self.high = high
+        # Present only during the second pass: a fault that comes and goes, the
+        # shape of anything thermal. The soak has to report it without the clean
+        # passes hiding it.
+        self.flaky = flaky
         self.last_written = None
         self.cpu_held = False
 
     def _plane_byte(self, p, addr):
         v = self.plane[p][addr]
         if self.broken and self.broken[0] == p:
+            if self.flaky and self.beacons.count(make_ramtest.B_DONE) != 1:
+                return v
             if not self.leaky or addr != self.last_written:
                 if self.high:
                     v |= 1 << self.broken[1]
@@ -127,6 +133,14 @@ class PlanePP(PP):
             self.setnz(v)
             self.v = 0
             return True
+        if op & 0o177700 == 0o000100:                   # JMP
+            self.r[7] = (self.r[7] + 2) & 0xFFFF
+            dm, dr = (op >> 3) & 7, op & 7
+            da = self.addr_of(dm, dr)
+            if da is None:
+                raise RuntimeError("jmp to a register is illegal")
+            self.r[7] = da
+            return True
         if op & 0o177700 == 0o000300:                   # SWAB
             self.r[7] = (self.r[7] + 2) & 0xFFFF
             dm, dr = (op >> 3) & 7, op & 7
@@ -189,16 +203,21 @@ class PlanePP(PP):
             return True
         return super().step()
 
-    def run(self, entry, psw_unused, limit=4_000_000):
-        # The base loop parks on make_testrom's DONE beacon, which is a
-        # different number here.
+    def run(self, entry, psw_unused, limit=4_000_000, passes=3):
+        # The test soaks rather than parking, so stop after a few complete
+        # passes instead of waiting for it to settle. Running more than one is
+        # the point: it is what proves the loop actually goes round and keeps
+        # reporting, rather than reporting once and wedging.
         self.r[7] = entry
+        done = 0
         for _ in range(limit):
+            before = self.beacons.count(make_ramtest.B_DONE)
             if not self.step():
                 return "halted"
-            if (len(self.beacons) > 8
-                    and self.beacons[-4:] == [make_ramtest.B_DONE] * 4):
-                return "parked"
+            if self.beacons.count(make_ramtest.B_DONE) > before:
+                done += 1
+                if done >= passes:
+                    return f"{done} passes"
         return "ran out of steps"
 
 
@@ -212,9 +231,9 @@ def status(pp):
     return pp.ram[a] | (pp.ram[a + 1] << 8)
 
 
-def run(label, broken, want, want_status, leaky=False, high=False):
+def run(label, broken, want, want_status, leaky=False, high=False, flaky=False):
     rom, _ = make_ramtest.build(ram_top=RAM_TOP, plane_words=PLANE_WORDS)
-    pp = PlanePP(rom, broken=broken, leaky=leaky, high=high)
+    pp = PlanePP(rom, broken=broken, leaky=leaky, high=high, flaky=flaky)
     entry = rom[make_ramtest.VECTOR - ROM_BASE] | \
         (rom[make_ramtest.VECTOR - ROM_BASE + 1] << 8)
     state = pp.run(entry, None, limit=4_000_000)
@@ -284,6 +303,11 @@ def main() -> int:
                     [B.B_ALIVE, B.B_PP_RAM_PASS, B.B_PLANE2_FAIL, B.B_DONE,
                      B.B_STUCK, B.B_BIT0 + 6],
                     B.RES_PP_RAM_OK | B.RES_PLANE2_BAD | B.RES_DONE | B.RES_STUCK)
+    failures += run("plane 1 bit 7 intermittent: only on one pass", (1, 7),
+                    [B.B_ALIVE, B.B_PP_RAM_PASS, B.B_PLANE_PASS, B.B_PLANE1_FAIL,
+                     B.B_DONE, B.B_STUCK, B.B_BIT0 + 7],
+                    B.RES_PP_RAM_OK | B.RES_PLANE1_BAD | B.RES_DONE | B.RES_STUCK,
+                    flaky=True)
     print("\n" + ("all checks passed" if not failures else f"{failures} failure(s)"))
     return 1 if failures else 0
 
