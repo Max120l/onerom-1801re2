@@ -538,12 +538,18 @@ ourselves. Reading ROM is harmless; only the address matters.
 | 8 | **the bit was already wrong on an immediate reread** — dead, not leaky |
 | 9–16 | bit 0…7 of the failing plane's byte |
 
-## The answer: plane 1
+## The answer: plane 1, bit 7, hard
 
 On hardware the frame read **long long short short long short long short** —
 alive, PP RAM good, planes *not* ok, **plane 1 bad**, plane 2 fine, done.
 
-The central processor's RAM is faulty in plane 1, which is the low byte of
+The final frame reads **long long short short long short long long**, then
+seven short and a long: plane 1 bad, **stuck rather than leaky**, **bit 7** and
+no other. A single bit of the central processor's RAM that cannot hold a value
+at all — wrong on an immediate reread, not merely wrong later.
+
+One bit is one column of the array, so on 1-bit-wide DRAM this is one chip. The
+central processor's RAM is plane 1 and plane 2, and plane 1 is the low byte of
 every word it executes. That is the machine's `- ОШИБКА ОЗУ ЦП` confirmed from
 the outside, by a test running on the other processor with the faulty one held
 in reset — and it explains the whole cluster of symptoms at once. The CPU's
