@@ -123,12 +123,30 @@ static volatile unsigned g_fail_block;
 // Beacon mode: the ROM we are serving is our own diagnostic, so the frame is
 // its report rather than the stock monitor's behaviour.  One pulse per beacon.
 static volatile uint32_t g_beacons;
+#if MPI_BEACON_PASS
+#define WATCH_PULSES  (PP_BEACON_COUNT + 2)   // ...plus restarted, plus PP RAM
+#else
 #define WATCH_PULSES  PP_BEACON_COUNT
+#endif
 #if MPI_BEACON_LIVE || MPI_BEACON_PASS
 // The last completed pass, and a counter so core 0 can tell a new verdict from
 // a repeat of the old one.  See PP_BEACON_DONE in watch.h.
 static volatile uint32_t g_beacons_last;
 static volatile uint32_t g_pass;
+#endif
+#if MPI_BEACON_PASS
+// Did the PP touch PP RAM?
+//
+// The address-bus test never does. It runs entirely out of ROM and speaks only
+// to 177010, 177014, 177716 and its own beacons -- every one of those above
+// 0100000. So a single cycle below that line means the PP is no longer running
+// our program: it trapped, most likely on a bus error, through a vector in RAM
+// that holds garbage, and is off executing whatever it found.
+//
+// That is otherwise invisible. A derailed PP keeps the bus busy, so "there is
+// activity" says nothing, and it emits no beacons, so the frame simply stops --
+// which looks identical to a clean hang.
+static volatile bool g_saw_pp_ram;
 #endif
 #else
 #define WATCH_PULSES  (count_of(g_watch) + BUS_EVENT_COUNT + 1 + 2)
@@ -190,6 +208,11 @@ static inline void __not_in_flash_func(watch_note)(uint32_t addr) {
     // A beacon is a read of a reserved PP RAM address.  We never serve those
     // addresses -- they are below our windows -- but the capture machine sees
     // every strobe on the bus, so the read is visible anyway.
+#if MPI_BEACON_PASS
+    if (addr < 0100000) {
+        g_saw_pp_ram = true;
+    }
+#endif
     uint32_t off = addr - PP_BEACON_BASE;
     if (off < 2 * PP_BEACON_COUNT) {
         unsigned b = off >> 1;
@@ -543,6 +566,19 @@ int main(void) {
         bool completing = pass != last_pass_seen;
         last_pass_seen = pass;
         uint32_t hits = completing ? g_beacons_last : g_beacons;
+
+        // Two pulses the ROM cannot emit, because both mean it has stopped
+        // running. Appended after the beacons so no beacon position moves.
+        static uint16_t last_boot;
+        uint16_t boot = g_boot;
+        if (boot != last_boot) {
+            hits |= 1u << PP_BEACON_COUNT;          // the PP restarted
+            last_boot = boot;
+        }
+        if (g_saw_pp_ram) {
+            hits |= 1u << (PP_BEACON_COUNT + 1);    // ...or left for PP RAM
+            g_saw_pp_ram = false;                   // per frame, not cumulative
+        }
 #else
         uint32_t hits = g_beacons;
 #endif
