@@ -92,12 +92,32 @@
 // write *is* the CPU's power-on. Watching the jsr and the ACLO release
 // separates "the CPU was never started" from "the CPU was started and failed",
 // which is otherwise guesswork -- and both are instructions read from us.
+//
+// 174170 is the PP's idle loop, and it exists for the frozen-menu case. The
+// monitor's dispatcher scans a task queue:
+//
+//   174164  mov #7060, r0
+//   174170  tst (r0)+
+//   174172  beq 174170     <- back round while the entry is empty
+//
+// The cursor blink and the keyboard scan are tasks. A menu drawn on screen with
+// no blinking cursor and no response to keys means the PP is not dispatching,
+// and this pulse says which kind of not-dispatching it is: lit means the PP is
+// alive and scanning but nothing ever becomes ready, which points at interrupts
+// or the timer; dark means it never reached the dispatcher or has left it, which
+// points at a wild jump or a trap.
+//
+// Note the pair runs backwards -- the branch at 174172 followed by its own
+// target at 174170. Taking a branch produces no memory cycle, so the two fetches
+// are adjacent; the forward direction is not, because "tst (r0)+" reads memory
+// between them.
 #define MPI_WATCH_PAIRS { \
     { 0160302, 0160300 }, \
     { 0160450, 0160446 }, \
     { 0160342, 0160340 }, \
     { 0160374, 0160372 }, \
     { 0101006, 0101004 }, \
+    { 0174170, 0174172 }, \
 }
 #define MPI_WATCH_MAX   8
 
@@ -150,6 +170,15 @@ enum {
     // is anything else we came up mid-stream and the machine has already been
     // asking questions nobody answered.
     BUS_FIRST_IS_VECTOR,
+
+    // Has the machine stopped asking?
+    //
+    // The other half of the frozen-menu question. A PP spinning in its idle
+    // dispatcher still fetches, so the bus stays busy; a PP that has halted, or
+    // is waiting forever on a reply nobody will give, produces nothing at all.
+    // Set when a whole second passes with no cycle served, which no running
+    // machine does.
+    BUS_WENT_QUIET,
 
     BUS_EVENT_COUNT
 };

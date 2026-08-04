@@ -1067,11 +1067,24 @@ is ever cleared, so a frame that changes between passes is itself a fact.
 | 3 | 160342 after 160340 | the PP called the routine that loads the central processor's memory |
 | 4 | 160374 after 160372 | **the PP released the central processor** — the ACLO edge that starts it |
 | 5 | 101006 after 101004 | the boot menu header was printed |
-| 6 | *(bus)* | a reply was prepared and the host never took it |
-| 7 | *(bus)* | the bus carried something other than what we drove |
-| 8 | *(bus)* | the first cycle of this boot was the power-up vector fetch — we won the startup race |
-| 9 | *(bus)* | all four windows fully covered: every word we serve was asked for |
-| 10–11 | *(bus)* | a 2-bit number, most significant first, naming the block whose checksum failed — **meaningless unless pulse 2 is lit** |
+| 6 | 174170 after 174172 | the PP is scanning its idle task queue — alive and dispatching |
+| 7 | *(bus)* | a reply was prepared and the host never took it |
+| 8 | *(bus)* | the bus carried something other than what we drove |
+| 9 | *(bus)* | the first cycle of this boot was the power-up vector fetch — we won the startup race |
+| 10 | *(bus)* | **the bus went quiet** — a whole second with no cycle served |
+| 11 | *(bus)* | all four windows fully covered: every word we serve was asked for |
+| 12–13 | *(bus)* | a 2-bit number, most significant first, naming the block whose checksum failed — **meaningless unless pulse 2 is lit** |
+
+Pulses 6 and 10 are a pair, and they exist for the frozen screen: a boot menu
+drawn with no blinking cursor and no response to the keyboard. The cursor blink
+and the keyboard scan are both tasks on the PP's dispatcher, so a static menu
+means the PP is not dispatching — and these say which kind:
+
+| 6 | 10 | |
+| --- | --- | --- |
+| long | short | the PP is alive and scanning, but no task ever becomes ready — interrupts or the timer |
+| short | long | the PP has stopped fetching altogether — a halt, a trap, or a reply that never came |
+| short | short | it left the dispatcher and is running somewhere else — a wild jump |
 
 ```
 00 = 205, 100000-117777      10 = 207, 140000-157777

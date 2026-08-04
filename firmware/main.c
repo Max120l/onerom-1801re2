@@ -429,6 +429,15 @@ int main(void) {
     while (true) {
         gpio_put(GPIO_STATUS_LED, STATUS_LED_OFF);
         sleep_ms(1500);                                  // frame marker
+
+        // A second of dark bus. Core 1 cannot notice this -- it is blocked in
+        // pio_sm_get_blocking waiting for a strobe that is not coming -- so the
+        // absence has to be spotted from out here.
+        static uint32_t seen_served;
+        if (g_served == seen_served) {
+            g_bus_hits |= 1u << BUS_WENT_QUIET;
+        }
+        seen_served = g_served;
 #if MPI_BEACONS
         uint32_t hits = g_beacons;
 #else
@@ -452,12 +461,13 @@ int main(void) {
 #endif
         for (unsigned i = 0; i < WATCH_PULSES; i++) {
             gpio_put(GPIO_STATUS_LED, STATUS_LED_ON);
-            // 10:1. An earlier 5:1 against a 400 ms gap read as one steady
-            // blink; a pulse you have to time against its neighbours is not a
-            // measurement, it is a guess.
-            sleep_ms((hits & (1u << i)) ? 1000 : 100);
+            // 7:1, still unmistakable. Shortened from 10:1 as pulses were added
+            // -- at 1000/400 a thirteen-pulse frame takes twenty seconds to
+            // read, and a frame nobody has the patience to finish is worse than
+            // one with slightly less contrast.
+            sleep_ms((hits & (1u << i)) ? 700 : 100);
             gpio_put(GPIO_STATUS_LED, STATUS_LED_OFF);
-            sleep_ms(400);
+            sleep_ms(300);
         }
     }
 #endif

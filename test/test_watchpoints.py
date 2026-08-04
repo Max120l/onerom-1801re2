@@ -34,6 +34,7 @@ EXPECTED = {
     0o101004: "mov #4, r0",
     0o160340: "jsr pc, 173252",
     0o160372: "mov #100000, @#177716",
+    0o174172: "beq 174170",
 }
 
 # Single-word instructions that reach the next word with no bus cycle in
@@ -101,13 +102,28 @@ def main() -> int:
         note = []
         ok = True
 
-        if addr != prev + 2:
-            note.append(f"FAIL: {addr:06o} is not {prev:06o}+2")
+        # Two ways a pair can be genuinely adjacent on the bus. The usual one
+        # is a forward step: addr is the next word after prev, whether that is
+        # prev's own extension word or the next instruction. The other is a
+        # taken branch, where prev *is* a branch to addr -- also adjacent,
+        # because taking a branch produces no memory cycle, and the only way to
+        # watch a backwards loop like the monitor's idle dispatcher.
+        branch_to = None
+        if text.split()[0] in SAFE_SINGLE_WORD and len(text.split()) > 1:
+            try:
+                branch_to = int(text.split()[1], 8)
+            except ValueError:
+                branch_to = None
+        if addr != prev + 2 and branch_to != addr:
+            note.append(f"FAIL: {addr:06o} is neither {prev:06o}+2 nor its "
+                        f"branch target")
             ok = False
+        elif branch_to == addr:
+            note.append("(branch taken, no bus cycle between the two fetches)")
         if prev in EXPECTED and text != EXPECTED[prev]:
             note.append(f"FAIL: expected {EXPECTED[prev]!r}, disassembles as {text!r}")
             ok = False
-        if length < 2:
+        if length < 2 and branch_to != addr:
             mnemonic = text.split()[0]
             if mnemonic not in SAFE_SINGLE_WORD:
                 note.append(f"FAIL: {mnemonic!r} is one word and may touch memory, "
