@@ -263,6 +263,35 @@ watch build now scores both as pulses 7 and 8, and `-DMPI_IGNORE_CS=ON` builds
 a twin that answers every window unconditionally — two firmwares differing in
 one variable, which is what turns this from an argument into a measurement.
 
+### The reply line
+
+A scope on socket pin 2 in the running machine shows nRPLY doing something a
+reply line should not: sharp falls, then an **RC ramp** taking on the order of a
+microsecond to climb back, and at the cycle rate the machine actually runs at
+(the capture reads ~2.5 µs between cycles) several ramps are cut off by the next
+assertion before they arrive anywhere near a logic high. Peak is 4.24 V, so the
+level is fine — the *edge* is not.
+
+That is the signature of a line released to hi-Z against a weak pull-up and a
+few hundred pF, which is exactly what the firmware does: nRPLY is open drain by
+construction, driven low to assert and released to let the bus pull it up. Open
+drain is the right model for an MPI reply line, but it assumes the bus can
+restore the line quickly, and here it plainly cannot.
+
+The consequence fits the fault. **A reply line that has not finished coming back
+up is indistinguishable from one still asserted.** A host reading it that way
+takes a reply for a cycle nobody has driven yet and samples the AD lines early —
+data that is right in the board and wrong in the processor, intermittently,
+which is what the checksum reported.
+
+`-DMPI_RPLY_ASSIST=ON` selects the `mpi_respond_assist` program, which drives
+nRPLY high with the pad's own 8 mA for ~320 ns after the host takes the data
+before going back to hi-Z. The window is bounded on purpose: nRPLY is shared,
+every slave asserts it for its own cycles, and the drive has to be gone before
+the next one could. From the observed ramp the line looks like a few hundred pF,
+which 8 mA slews in 100–200 ns, so 320 ns does it with margin and still fits
+inside the shortest turnaround the PP could produce at 6.25 MHz.
+
 ### The board is not the problem — superseded
 
 The reasoning below is left because it is still sound as far as it goes; it is

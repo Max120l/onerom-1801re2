@@ -76,6 +76,61 @@
     irq nowait 0                ; flag a completed serve, for the CPU to see
 .wrap
 
+; ---------------------------------------------------------------------------
+; Data response, with an assisted release of nRPLY
+; ---------------------------------------------------------------------------
+;
+; Same program, except that nRPLY is briefly driven high before being handed
+; back, instead of being left to the bus to pull up.
+;
+; A scope on socket pin 2 in a running MS 0511 shows the reason. Releasing the
+; line produces an RC ramp taking on the order of a microsecond to arrive
+; anywhere near a logic high, and at the cycle rate the machine actually runs
+; at, some ramps are cut off by the next assertion before they get there. A
+; reply line that has not finished coming back up is indistinguishable from one
+; still asserted, and a host that reads it that way samples the AD lines for a
+; cycle nobody has driven yet -- which is the shape of the fault we are chasing:
+; data that is right in the board and wrong in the processor.
+;
+; Open drain is the correct model for an MPI reply line, so the fix is not to
+; drive it high and hold it. It is to slew it with the pad's own 8 mA for a few
+; hundred nanoseconds and then go back to hi-Z. 3V3 is a valid TTL high, and if
+; this machine does have a real pull-up to 5 V, briefly sourcing against it
+; costs a milliamp.
+;
+; nRPLY is shared -- every slave on the PP bus asserts it for its own cycles --
+; so the drive window has to close before the next slave could possibly assert.
+; From the observed ramp the line looks like a few hundred pF against a weak
+; pull-up, which 8 mA slews in about 100-200 ns; 320 ns therefore does the job
+; with margin while still fitting inside the shortest cycle turnaround the PP
+; could produce at 6.25 MHz. Widening it trades that margin away.
+;
+; The duplication with mpi_respond above is deliberate: the two behaviours are
+; a hardware question, and shipping them as one program with a runtime branch
+; would put a branch on the path that has a deadline. Only one is ever loaded.
+;
+; Configure additionally: set base = nRPLY, 1 pin.
+
+.program mpi_respond_assist
+.wrap_target
+    mov osr, null
+    out pindirs, 24             ; release the bus: AD and nRPLY hi-Z
+    pull block                  ; drive pattern for this cycle, from the CPU
+    wait 0 pin PIN_nDIN         ; read strobe
+    out pins, 24                ; present data (nRPLY bit is low but still hi-Z)
+    mov osr, x
+    out pindirs, 24             ; drive the AD lines
+    mov osr, y
+    out pindirs, 24             ; assert nRPLY -- handshake complete
+    wait 1 pin PIN_nDIN         ; host has taken the data
+    set pins, 1            [31] ; drive nRPLY high: 32 cycles...
+    nop                    [15] ; ...and 16 more, ~320 ns at 150 MHz
+    set pindirs, 0              ; hand it back to the bus, hi-Z again
+    irq nowait 0                ; flag a completed serve, for the CPU to see
+.wrap
+; The next cycle's "out pins, 24" restores this pin's output value to 0 while it
+; is still hi-Z, so the following assertion drives low as before.
+
 % c-sdk {
 #include "hardware/clocks.h"
 
@@ -90,7 +145,12 @@ static inline void mpi_capture_init(PIO pio, uint sm, uint offset) {
 
 static inline void mpi_respond_init(PIO pio, uint sm, uint offset,
                                     uint32_t dirs_ad, uint32_t dirs_ad_rply) {
+#if MPI_RPLY_ASSIST
+    pio_sm_config c = mpi_respond_assist_program_get_default_config(offset);
+    sm_config_set_set_pins(&c, PIN_nRPLY, 1);   // the assisted release drives it
+#else
     pio_sm_config c = mpi_respond_program_get_default_config(offset);
+#endif
     sm_config_set_in_pins(&c, 0);       // so WAIT PIN indices are GPIO numbers
     sm_config_set_out_pins(&c, 0, 24);
     sm_config_set_out_shift(&c, true /* shift right */, false /* no autopull */, 32);

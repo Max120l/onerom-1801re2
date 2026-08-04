@@ -32,6 +32,11 @@ if(MPI_IGNORE_CS)
     target_compile_definitions(mpi_rom PRIVATE SOCKET_CS_CODE=0xFF)
 endif()
 
+# Briefly drive nRPLY high on release instead of leaving the rise to the bus.
+# See the mpi_respond_assist program in mpi_rom.pio for why this exists.
+option(MPI_RPLY_ASSIST "Assist the rising edge of nRPLY" OFF)
+target_compile_definitions(mpi_rom PRIVATE MPI_RPLY_ASSIST=$<BOOL:${MPI_RPLY_ASSIST}>)
+
 target_include_directories(mpi_rom PRIVATE ${CMAKE_CURRENT_LIST_DIR})
 
 target_link_libraries(mpi_rom

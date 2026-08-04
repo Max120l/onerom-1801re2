@@ -5,3 +5,5 @@ firmware/build/
 test/build/
 firmware/build-watch/
 firmware/build-watch-nocs/
+firmware/build-assist/
+firmware/build-assist-plain/

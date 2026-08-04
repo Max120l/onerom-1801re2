@@ -153,7 +153,11 @@ static void start_pio(void) {
     pio_sm_set_pindirs_with_mask(g_pio, SM_RESPOND, 0, g_dirs_ad_rply);
 
     g_off_capture = pio_add_program(g_pio, &mpi_capture_program);
+#if MPI_RPLY_ASSIST
+    g_off_respond = pio_add_program(g_pio, &mpi_respond_assist_program);
+#else
     g_off_respond = pio_add_program(g_pio, &mpi_respond_program);
+#endif
     mpi_capture_init(g_pio, SM_CAPTURE, g_off_capture);
     mpi_respond_init(g_pio, SM_RESPOND, g_off_respond, g_dirs_ad, g_dirs_ad_rply);
     pio_set_sm_mask_enabled(g_pio, (1u << SM_CAPTURE) | (1u << SM_RESPOND), true);
