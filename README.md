@@ -322,6 +322,34 @@ What settles it is a two-channel capture: **nRPLY on pin 2 against nDIN on pin
 is exonerated and the corruption is elsewhere. If it is not, the mechanism is
 confirmed and the assist is the fix. One capture decides it.
 
+### The first assist program was wrong
+
+Flashed on hardware it made the machine worse — the screen never reached the
+cursor, the video memory was not being initialised at all — and the frame read
+long on pulse 1, long on pulse 8, short on everything else.
+
+The cause is worth recording because it is a PIO trap rather than a bus
+subtlety. **SET maps one pin.** With the SET base at nRPLY, `set pindirs, 0`
+releases nRPLY and nothing else, so the sixteen AD lines stayed driven until the
+`.wrap` — which the assist had just pushed ~320 ns later. Any cycle the host
+opened inside that window met our drivers on every address line. That is
+contention on the address, not a timing effect, and it is exactly as destructive
+as it sounds.
+
+The IRQ was wrong too. It sat after the delay, so the CPU's served-versus-missed
+check at the next address strobe ran before the state machine had raised it,
+scored a completed cycle as missed, and re-armed the response machine underneath
+itself. Pulse 8 in that frame is mostly this, which makes that run uninformative
+about the untaken replies it appears to report.
+
+Both are fixed: the IRQ is raised immediately after the host takes the data, at
+the same point in the cycle as the plain program, and a third direction mask —
+nRPLY driven, AD released — is preloaded into ISR so the AD lines are let go two
+instructions after the strobe while nRPLY alone is held high.
+
+The lesson generalises: an instrumented build has to be timing-identical to the
+one it is measuring, and OUT and SET see different pins.
+
 ### The board is not the problem — superseded
 
 The reasoning below is left because it is still sound as far as it goes; it is

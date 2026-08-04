@@ -123,13 +123,28 @@
     mov osr, y
     out pindirs, 24             ; assert nRPLY -- handshake complete
     wait 1 pin PIN_nDIN         ; host has taken the data
-    set pins, 1            [31] ; drive nRPLY high: 32 cycles...
+    irq nowait 0                ; flag the serve HERE, at the same point in the
+                                ; cycle as the plain program: the CPU samples
+                                ; this at the next address strobe, and anything
+                                ; that delays it is read as a cycle we missed
+    set pins, 1                 ; nRPLY output value high -- it is still driven
+    mov osr, isr                ; ISR holds "nRPLY output, AD released"
+    out pindirs, 24             ; let go of the AD lines NOW, keep driving nRPLY
+    nop                    [31] ; hold it high: 32 cycles...
     nop                    [15] ; ...and 16 more, ~320 ns at 150 MHz
-    set pindirs, 0              ; hand it back to the bus, hi-Z again
-    irq nowait 0                ; flag a completed serve, for the CPU to see
+    set pindirs, 0              ; hand nRPLY back to the bus, hi-Z again
 .wrap
 ; The next cycle's "out pins, 24" restores this pin's output value to 0 while it
 ; is still hi-Z, so the following assertion drives low as before.
+;
+; The two instructions between the wait and the release of the AD lines are the
+; whole reason this program is written the way it is. SET maps one pin -- nRPLY
+; -- so a "set pindirs, 0" releases only that pin and leaves the sixteen AD
+; lines driven until the wrap. Holding them for the length of the assist means
+; that if the host opens its next cycle inside that window we are driving
+; against its address drivers on every line. The first version of this program
+; did exactly that, and the machine stopped initialising its video memory at
+; all: contention on the address, not a subtle timing effect.
 
 % c-sdk {
 #include "hardware/clocks.h"
@@ -165,5 +180,14 @@ static inline void mpi_respond_init(PIO pio, uint sm, uint offset,
     pio_sm_put_blocking(pio, sm, dirs_ad_rply);
     pio_sm_exec(pio, sm, pio_encode_pull(false, false));
     pio_sm_exec(pio, sm, pio_encode_mov(pio_y, pio_osr));
+
+#if MPI_RPLY_ASSIST
+    // ...and a third into ISR: nRPLY driven, AD lines released.  The assisted
+    // release needs to let go of the AD lines while still holding nRPLY, which
+    // neither of the other two masks can express.
+    pio_sm_put_blocking(pio, sm, dirs_ad_rply & ~dirs_ad);
+    pio_sm_exec(pio, sm, pio_encode_pull(false, false));
+    pio_sm_exec(pio, sm, pio_encode_mov(pio_isr, pio_osr));
+#endif
 }
 %}
