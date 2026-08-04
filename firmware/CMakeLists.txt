@@ -24,6 +24,14 @@ pico_generate_pio_header(mpi_rom ${CMAKE_CURRENT_LIST_DIR}/mpi_rom.pio)
 option(MPI_WATCH "Watch monitor addresses and report them on the LED" OFF)
 target_compile_definitions(mpi_rom PRIVATE MPI_WATCH=$<BOOL:${MPI_WATCH}>)
 
+# Answer every read in our windows regardless of the socket's CS.  Paired with
+# MPI_WATCH this isolates one variable: build both, flash both, and the frame
+# says whether honouring CS is costing the machine reads.
+option(MPI_IGNORE_CS "Serve every window unconditionally, ignoring socket CS" OFF)
+if(MPI_IGNORE_CS)
+    target_compile_definitions(mpi_rom PRIVATE SOCKET_CS_CODE=0xFF)
+endif()
+
 target_include_directories(mpi_rom PRIVATE ${CMAKE_CURRENT_LIST_DIR})
 
 target_link_libraries(mpi_rom

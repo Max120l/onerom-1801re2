@@ -121,7 +121,13 @@
 //
 //   DS4 (the 205, code 011) -> 03
 //   DS1, DS2, DS3           -> 0xFF
+//
+// Overridable from the build (-DSOCKET_CS_CODE=0xFF), so that "is honouring CS
+// costing us reads?" can be settled by flashing two firmwares that differ in
+// nothing else.
+#ifndef SOCKET_CS_CODE
 #define SOCKET_CS_CODE         03
+#endif
 
 // Socket pins 21 and 22 are not connected.  They are inside the 24-bit field
 // but contribute to no address bit, so they only need a pull to stop them

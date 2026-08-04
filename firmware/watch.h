@@ -87,4 +87,23 @@ typedef struct {
     uint32_t prev;      // ...and only if this was the cycle before it
 } mpi_watch_t;
 
+// ---------------------------------------------------------------------------
+// Bus events
+// ---------------------------------------------------------------------------
+//
+// The watchpoints above say what the machine executed. These say what the board
+// did, and they exist because the two can disagree: the monitor reported a ROM
+// block failing its checksum on hardware while the same images pass that same
+// checksum offline. Something is between our correct data and the processor's
+// wrong sum, and there are only two candidates -- reads we declined to answer,
+// and replies we assembled that were never taken.
+//
+// They are appended to the LED frame after the code watchpoints, so the pulse
+// positions of the watchpoints do not move when these are added or removed.
+enum {
+    BUS_CS_DECLINED,        // a read in the CS-gated window went unanswered
+    BUS_REPLY_UNTAKEN,      // a reply was prepared and the host never took it
+    BUS_EVENT_COUNT
+};
+
 #endif // WATCH_H

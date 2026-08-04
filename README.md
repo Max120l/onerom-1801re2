@@ -229,9 +229,46 @@ writes 40, then 0, then 100000. The bit-4 branch is a warm-restart hook that
 jumps through location 0 if one is set; it has nothing to do with the menu, and
 the guess that it explained the missing menu was wrong.
 
-### The board is not the problem
+### What the machine said
 
-Two independent arguments, neither of which needs the machine on a bench.
+The first frame read back from hardware was:
+
+| pulse | | reading |
+| --- | --- | --- |
+| 1 | **long** | the monitor started from our vector — the instrument is valid |
+| 2 | **long** | **a ROM block failed its checksum** |
+| 3 | short | the PP RAM test found no fault |
+| 4 | short | the error-printing routine was not entered |
+| 5 | **long** | the startup test ran to completion |
+| 6 | short | the boot menu header was never printed |
+
+Pulse 2 is the one that matters, and it reverses the conclusion below. The
+images pass that same checksum offline — byte-identical to the reference, all
+four blocks verified — so the machine reading a bad block means **it is not
+receiving what the board holds**. That is a board-side fault, and it is not
+confined to the checksum: a processor fed a wrong word executes it. The missing
+menu may be downstream of this rather than a separate question.
+
+Pulses 2 and 4 together are informative. A checksum failure leaves a bit set in
+the error mask, and the monitor at 172732 branches to the printing routine when
+that mask is non-zero — so pulse 4 should have been long too. The path that
+skips it is the `bhi` at 172726, taken when the byte the central processor sent
+over channel 0 (port 177060) is greater than 2. So the CPU is reporting
+something as well. Pulses can only be lost, never invented, so this is a lead
+rather than a proof.
+
+There are exactly two ways our correct data becomes the processor's wrong sum:
+reads we decline to answer, and replies we assemble that are never taken. The
+watch build now scores both as pulses 7 and 8, and `-DMPI_IGNORE_CS=ON` builds
+a twin that answers every window unconditionally — two firmwares differing in
+one variable, which is what turns this from an argument into a measurement.
+
+### The board is not the problem — superseded
+
+The reasoning below is left because it is still sound as far as it goes; it is
+simply not evidence about what the machine *reads*, which is what pulse 2
+settles. Both arguments are about the bytes we hold, and both remain true of a
+board whose data never arrives intact.
 
 **The menu text lives 40 bytes from text the machine already displays.** The
 ЗАГРУЗКА block is at 103116, and the УСТ settings text the user can reach sits
@@ -265,9 +302,6 @@ all four blocks pass: the monitor's own ROM test is happy with these images
 Note the block boundaries: the machine's own test partitions the ROM exactly by
 chip window, so a failure names a chip. Flip one bit anywhere in the 205's
 window and only that line goes MISMATCH.
-
-So the missing menu is a decision the machine is making, not a byte it cannot
-read.
 
 ### Asking the machine instead of guessing
 
@@ -634,6 +668,15 @@ is ever cleared, so a frame that changes between passes is itself a fact.
 | 4 | 172766 after 172764 | the monitor is printing an `- ОШИБКА ...` line |
 | 5 | 174154 after 174152 | the startup test ran to completion |
 | 6 | 101006 after 101004 | the boot menu header was printed |
+| 7 | *(bus)* | a read inside one of our windows went unanswered because CS was deasserted |
+| 8 | *(bus)* | a reply was prepared and the host never took it |
+
+Pulses 7 and 8 are what the board did rather than what the machine executed.
+They exist because the two disagreed: the monitor reported a ROM block failing
+its checksum while the same images pass that checksum offline, and those are the
+only two ways correct data becomes a wrong sum. Build the twin with
+`-DMPI_IGNORE_CS=ON` to answer every window unconditionally; if pulse 7 is long
+on one and pulse 2 goes short on the other, CS is the cause.
 
 ### Why each watchpoint is a pair
 
