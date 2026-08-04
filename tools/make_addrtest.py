@@ -100,6 +100,14 @@ def program(plane_words, stop_on_fail=False):
 ;      is its DCLO pin; with it stopped, nothing but us touches the planes.
         mov #40, @#177716
 
+; ---- park the stack somewhere identifiable.
+;      This program never uses a stack, but a trap does: it pushes the old PC and
+;      PSW before vectoring. Left at whatever the PP powers up with, those writes
+;      land unpredictably -- possibly in the first few words of memory, where the
+;      board is watching for the vector fetch that names the trap. High and out
+;      of the way, they cannot be confused with it.
+        mov #70000, sp
+
 soak:   mov #{BEACON + 2 * B_ALIVE:o}, r1
         tst (r1)
 

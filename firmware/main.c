@@ -124,7 +124,7 @@ static volatile unsigned g_fail_block;
 // its report rather than the stock monitor's behaviour.  One pulse per beacon.
 static volatile uint32_t g_beacons;
 #if MPI_BEACON_PASS
-#define WATCH_PULSES  (PP_BEACON_COUNT + 2)   // ...plus restarted, plus PP RAM
+#define WATCH_PULSES  (PP_BEACON_COUNT + 8)   // restarted, PP RAM, 6 vector bits
 #else
 #define WATCH_PULSES  PP_BEACON_COUNT
 #endif
@@ -147,6 +147,19 @@ static volatile uint32_t g_pass;
 // activity" says nothing, and it emits no beacons, so the frame simply stops --
 // which looks identical to a clean hang.
 static volatile bool g_saw_pp_ram;
+
+// ...and which trap took it there.
+//
+// A trapping PP reads its new PC from a vector in the first few words of memory,
+// and the vector names the fault: 4 is a bus timeout -- a cycle nobody answered
+// -- while 10 is an illegal instruction, which would mean it was already
+// executing rubbish before it got here. Those are different diagnoses.
+//
+// Only the vector page counts. The trap also pushes the old PC and PSW, and
+// those writes are cycles below 0100000 too; the ROM parks the stack pointer
+// high so they cannot be mistaken for a vector fetch.
+#define PP_VECTOR_PAGE  01000
+static volatile uint32_t g_trap_vec;
 #endif
 #else
 #define WATCH_PULSES  (count_of(g_watch) + BUS_EVENT_COUNT + 1 + 2)
@@ -210,6 +223,9 @@ static inline void __not_in_flash_func(watch_note)(uint32_t addr) {
     // every strobe on the bus, so the read is visible anyway.
 #if MPI_BEACON_PASS
     if (addr < 0100000) {
+        if (addr < PP_VECTOR_PAGE && !g_trap_vec) {
+            g_trap_vec = addr;      // first vector fetch of this frame
+        }
         g_saw_pp_ram = true;
     }
 #endif
@@ -578,6 +594,15 @@ int main(void) {
         if (g_saw_pp_ram) {
             hits |= 1u << (PP_BEACON_COUNT + 1);    // ...or left for PP RAM
             g_saw_pp_ram = false;                   // per frame, not cumulative
+        }
+        // The trap vector, bits 1..6 -- enough for every vector in the page,
+        // and six pulses rather than sixteen because the top ten are always 0.
+        uint32_t vec = g_trap_vec;
+        g_trap_vec = 0;
+        for (unsigned b = 0; b < 6; b++) {
+            if (vec & (2u << b)) {
+                hits |= 1u << (PP_BEACON_COUNT + 2 + b);
+            }
         }
 #else
         uint32_t hits = g_beacons;
