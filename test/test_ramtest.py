@@ -38,7 +38,8 @@ class PlanePP(PP):
     assuming the detection generalises rather than showing that it does.
     """
 
-    def __init__(self, rom, broken=None, leaky=False, high=False, flaky=False):
+    def __init__(self, rom, broken=None, leaky=False, high=False, flaky=False,
+                 pp_bit=None):
         super().__init__(rom)
         self.plane = [bytearray(PLANE_WORDS) for _ in range(3)]
         self.paddr = 0
@@ -53,6 +54,10 @@ class PlanePP(PP):
         # shape of anything thermal. The soak has to report it without the clean
         # passes hiding it.
         self.flaky = flaky
+        # A bit of the PP's own RAM -- plane 0, the bank on DG0..DG7, the one
+        # the video tag list lives in. The PP reads words from it, and a failing
+        # data line shows in both bytes of every word, so model it that way.
+        self.pp_bit = pp_bit
         self.last_written = None
         self.cpu_held = False
 
@@ -85,7 +90,10 @@ class PlanePP(PP):
                     | (self._plane_byte(2, self.paddr) << 8))
         if addr == 0o177716:
             return 0o40 if self.cpu_held else 0
-        return super().read(addr)
+        v = super().read(addr)
+        if self.pp_bit is not None and addr < 0o100000:
+            v &= ~((1 << self.pp_bit) | (1 << (self.pp_bit + 8))) & 0xFFFF
+        return v
 
     def write(self, addr, value):
         addr &= 0xFFFE
@@ -231,9 +239,11 @@ def status(pp):
     return pp.ram[a] | (pp.ram[a + 1] << 8)
 
 
-def run(label, broken, want, want_status, leaky=False, high=False, flaky=False):
+def run(label, broken, want, want_status, leaky=False, high=False, flaky=False,
+        pp_bit=None):
     rom, _ = make_ramtest.build(ram_top=RAM_TOP, plane_words=PLANE_WORDS)
-    pp = PlanePP(rom, broken=broken, leaky=leaky, high=high, flaky=flaky)
+    pp = PlanePP(rom, broken=broken, leaky=leaky, high=high, flaky=flaky,
+                 pp_bit=pp_bit)
     entry = rom[make_ramtest.VECTOR - ROM_BASE] | \
         (rom[make_ramtest.VECTOR - ROM_BASE + 1] << 8)
     state = pp.run(entry, None, limit=4_000_000)
@@ -308,6 +318,10 @@ def main() -> int:
                      B.B_DONE, B.B_STUCK, B.B_BIT0 + 7],
                     B.RES_PP_RAM_OK | B.RES_PLANE1_BAD | B.RES_DONE | B.RES_STUCK,
                     flaky=True)
+    failures += run("plane 0 (PP RAM) bit 5 -- the tag-list bank", None,
+                    [B.B_ALIVE, B.B_PP_RAM_FAIL, B.B_PLANE_PASS, B.B_DONE,
+                     B.B_BIT0 + 5],
+                    B.RES_DONE, pp_bit=5)
     print("\n" + ("all checks passed" if not failures else f"{failures} failure(s)"))
     return 1 if failures else 0
 

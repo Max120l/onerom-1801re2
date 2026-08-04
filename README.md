@@ -550,6 +550,20 @@ machine is left on, and because the firmware's beacon bits are set-only, a bit
 that fails on pass four hundred lights its pulse and stays lit. Leave it running
 an hour and read the frame afterwards.
 
+Warm, the machine now freezes, blanks, or falls back to the uninitialised
+vertical lines after about ten minutes of sitting at the boot screen. All three
+are **plane 0** symptoms rather than data corruption: the video tag list lives
+at 0000270 in plane 0, which is also the PP's own RAM, so a fault there makes
+the display stop making sense and the dispatcher stop dispatching. The soak
+tests plane 0 as its first phase, and now names its failing bits too.
+
+That last part exposed a flaw the simulator caught and hardware would not have:
+the accumulator recording PP RAM faults was itself in PP RAM, so a bad bit
+erased the record of itself and the test reported a clean pass over a faulty
+bank. It lives in r6 now — the stack pointer, free because this program never
+uses a stack and takes no traps with interrupts masked. **The witness to a
+memory fault cannot live in the memory under test.**
+
 One combination is worth reading deliberately: on an intermittent fault **both
 "planes passed" and "plane N failed" end up lit**, because over hundreds of
 passes both happened. A hard fault cannot produce that pairing, so the frame

@@ -84,6 +84,15 @@ RESULT_MASK = 0o077662               # every plane bit that was ever wrong
 RES_PP_RAM_OK, RES_PLANE1_BAD, RES_PLANE2_BAD, RES_DONE = 1, 2, 4, 8
 RES_STUCK = 16
 IMMEDIATE = 0o077664                 # bits that failed even on an instant reread
+PPMASK = 0o077666                    # a copy for the emulator; r6 is the truth
+#
+# The accumulator for a PP RAM fault cannot live in PP RAM. The first version
+# kept it at PPMASK, and the simulator showed the obvious consequence: a bad bit
+# erases the record of itself, and the test reports a clean pass over a faulty
+# bank. It lives in r6 instead -- the stack pointer, which is free because this
+# program never uses a stack and takes no traps with interrupts masked. The
+# memory copy is written at the end for a debugger to read, and is only as
+# trustworthy as the memory it sits in.
 
 # Beacon numbers are the protocol; the firmware reads against this list.
 (B_ALIVE, B_PP_RAM_PASS, B_PP_RAM_FAIL, B_PLANE_PASS,
@@ -109,6 +118,7 @@ def program(ram_top, plane_words):
         clr r5
         clr @#{IMMEDIATE:o}
         clr @#{RESULT_MASK:o}
+        clr r6
 
 ; ---- everything below runs in a loop, for as long as the machine is left on.
 ;      A fault that only appears once the board is warm cannot be caught by a
@@ -133,8 +143,9 @@ pf1:    mov r0, (r0)
         cmp r0, #{ram_top:o}
         blo pf1
         clr r0
-pc1:    cmp r0, (r0)
-        bne ppbad
+pc1:    mov (r0), r2
+        xor r0, r2
+        bis r2, r6
         add #2, r0
         cmp r0, #{ram_top:o}
         blo pc1
@@ -149,12 +160,20 @@ pf2:    mov r0, r2
         clr r0
 pc2:    mov r0, r2
         com r2
-        cmp r2, (r0)
-        bne ppbad
+        mov (r0), r4
+        xor r2, r4
+        bis r4, r6
         add #2, r0
         cmp r0, #{ram_top:o}
         blo pc2
 
+;      The PP's own RAM is plane 0 -- the same memory the video tag list at
+;      0000270 lives in, which is why a fault here shows on screen as a freeze,
+;      a blank, or the uninitialised vertical lines rather than as bad data.
+;      Accumulated rather than bailed out of, so the failing bits are named
+;      too, and so one bad location does not hide the rest.
+        tst r6
+        bne ppbad
         mov #{BEACON + 2 * B_PP_RAM_PASS:o}, r1
         tst (r1)
         bis #{RES_PP_RAM_OK:o}, r5
@@ -254,7 +273,7 @@ qc2:    mov r0, @#177010
         bne qbad
         mov #{BEACON + 2 * B_PLANE_PASS:o}, r1
         tst (r1)
-        br finish
+        br bits
 
 ; ---- name the plane. The low byte of a plane word is plane 1 and the high byte
 ;      is plane 2, so the two halves of the accumulated difference say which
@@ -278,7 +297,8 @@ q1ok:   mov r3, r2
 ;      bit of a plane is one column of the bank, so on 1-bit-wide DRAM this is
 ;      a list of chips rather than a diagnosis to interpret.
 bits:   mov r3, r2
-        mov r3, r4
+        bis r6, r2
+        mov r2, r4
         swab r4
         bis r4, r2
         bic #177400, r2
@@ -302,6 +322,7 @@ finish: tst @#{IMMEDIATE:o}
 ; ---- leave the verdict where a debugger or an emulator's memory view can read
 ;      it, then park, beaconing so the board can tell "finished" from "hung"
 park:   bis #{RES_DONE:o}, r5
+        mov r6, @#{PPMASK:o}
         mov r5, @#{RESULT:o}
         bis r3, @#{RESULT_MASK:o}
         mov #{BEACON + 2 * B_DONE:o}, r1
