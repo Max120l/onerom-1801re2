@@ -766,6 +766,30 @@ It also retroactively clears the memory. The CPU planes pass the machine's own
 test now, so the `- ОШИБКА ОЗУ ЦП` that started this was the dead 4164 on DC7,
 and everything after the repair was D22 making good memory look bad.
 
+### What has been eliminated since
+
+**The bypass capacitor.** D22's decoupling was pulled, measured, and replaced
+with a modern 100 nF. No change in behaviour. The board decouples every IC with
+the same part, so there was no odd-one-out to find either.
+
+**Latched state of any kind.** The machine recovers *without a power cycle*:
+cool D22 and a soft reset on the front panel button brings it straight back. So
+nothing is latching -- not latch-up, not a corrupted internal register, nothing
+that needs power removed to clear. What crosses a threshold recrosses it as soon
+as the temperature drops, which is what a propagation delay against junction
+temperature does and what almost nothing else does.
+
+That leaves the die. Worth trying before sourcing a КР1801ВП1-055, in this
+order, because both are free and reversible:
+
+- **supply at 5.2 V.** 5 V ±5% puts 5.25 V in spec, and logic of this era gets
+  faster with more supply -- more drive, shorter delay. If the part is marginal
+  by a little, this may buy back more than cooling does.
+- **a fan, not a heatsink.** D22 does not get warm to the touch, so it has almost
+  nothing of its own to shed and a heatsink has nothing to remove; its junction
+  still sits a few degrees above the surrounding air, and moving that air is the
+  only remaining lever.
+
 ### Why nothing else ever looked wrong
 
 RPLY is the signal that *completes* a bus cycle. It carries no data, so nothing
