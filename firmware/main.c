@@ -177,6 +177,12 @@ static volatile bool g_saw_pp_ram;
 // those writes are cycles below 0100000 too; the ROM parks the stack pointer
 // high so they cannot be mistaken for a vector fetch.
 #define PP_VECTOR_PAGE  01000
+// Latched for the life of the power session, not the frame.
+//
+// Cleared per frame, this named an arbitrary trap out of the storm that follows
+// the first one -- and hardware duly reported vector 14, which may be what
+// started the trouble or may be the noise afterwards. A processor already
+// executing garbage takes traps constantly; only the first one is evidence.
 static volatile uint32_t g_trap_vec;
 // ...with its own flag, because 0 is a real answer. Testing g_trap_vec for
 // emptiness made a vector fetch of 0 indistinguishable from no fetch at all, so
@@ -680,9 +686,7 @@ int main(void) {
         }
         // The trap vector, bits 1..6 -- enough for every vector in the page,
         // and six pulses rather than sixteen because the top ten are always 0.
-        uint32_t vec = g_trap_vec;
-        g_trap_vec = 0;
-        g_trap_vec_seen = false;
+        uint32_t vec = g_trap_vec;      // latched since power-on; see above
 
         // Did the bus carry what we drove?
         //
