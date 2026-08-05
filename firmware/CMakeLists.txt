@@ -71,6 +71,13 @@ if(MPI_BEACON_LIVE AND NOT MPI_BEACONS)
     set(MPI_BEACONS ON)
 endif()
 
+# Blink the address of the cycle immediately before the PP last restarted
+# itself -- sixteen pulses, one number, nothing else.  See main.c.
+option(MPI_BEACON_KILLADDR "Blink the address the PP died on" OFF)
+if(MPI_BEACON_KILLADDR AND NOT MPI_WATCH)
+    message(STATUS "MPI_BEACON_KILLADDR implies MPI_WATCH; enabling it")
+    set(MPI_WATCH ON)
+endif()
 if(MPI_BEACONS AND NOT MPI_WATCH)
     message(STATUS "MPI_BEACONS implies MPI_WATCH; enabling it")
     set(MPI_WATCH ON)
@@ -79,7 +86,8 @@ endif()
 target_compile_definitions(mpi_rom PRIVATE
     MPI_WATCH=$<BOOL:${MPI_WATCH}>
     MPI_BEACONS=$<BOOL:${MPI_BEACONS}>
-    MPI_BEACON_LIVE=$<BOOL:${MPI_BEACON_LIVE}>)
+    MPI_BEACON_LIVE=$<BOOL:${MPI_BEACON_LIVE}>
+    MPI_BEACON_KILLADDR=$<BOOL:${MPI_BEACON_KILLADDR}>)
 
 # How many beacon pulses the frame blinks.  Different test ROMs have different
 # beacon maps: the soak uses 17, the address-bus test 19.  See watch.h.

@@ -107,6 +107,9 @@ static volatile uint16_t g_boot = 1;
 // Every AD line that has ever read back differently from what we drove.
 static volatile uint32_t g_mismatch;
 
+// The address of the cycle immediately before the last restart.  See watch_note.
+static volatile uint32_t g_kill_addr;
+
 // Which block the checksum was comparing when it last found a mismatch, and the
 // stored sum most recently read.  See CHK_CMP_EXT in watch.h.
 static volatile uint32_t g_last_sum = CHK_SUM_LOW;
@@ -200,6 +203,7 @@ static bool coverage_complete(unsigned w) {
 // see watch.h.
 static inline void __not_in_flash_func(watch_note)(uint32_t addr) {
     static uint32_t prev = 0xFFFFFFFF;
+    static uint32_t prev2 = 0xFFFFFFFF;
     static bool first = true;
 
     if (first) {
@@ -212,6 +216,11 @@ static inline void __not_in_flash_func(watch_note)(uint32_t addr) {
         // now, two cycles into the new boot -- deferring it to core 0 meant it
         // landed at the top of the next frame, up to ten seconds later, wiping
         // the whole startup sequence it was supposed to be reporting on.
+        // The cycle before the restart is the one that killed it. A 1801 that
+        // meets a bus condition it cannot survive re-enters through its power-up
+        // vector with no ACLO or DCLO involved, so from outside the only trace
+        // of what went wrong is the address it was working on when it went.
+        g_kill_addr = prev2;
         g_boot++;
         g_watch_hits = 0;
         g_mismatch = 0;
@@ -265,6 +274,7 @@ static inline void __not_in_flash_func(watch_note)(uint32_t addr) {
             g_watch_hits |= 1u << i;
         }
     }
+    prev2 = prev;
     prev = addr;
 }
 #endif
@@ -501,6 +511,28 @@ int main(void) {
 
     multicore_launch_core1(serve_forever);
 
+#if MPI_BEACON_KILLADDR
+    // Sixteen pulses, and they are one number: the address the PP was working on
+    // when it last restarted itself.
+    //
+    // Everything else in this file reports what a test found. This reports what
+    // the machine was doing at the instant it stopped being able to run, which
+    // is the only question left once the test is clean and the machine restarts
+    // anyway. Dark frame means no restart since the last one -- self-indicating,
+    // so no pulse is spent saying whether the reading is valid.
+    while (true) {
+        gpio_put(GPIO_STATUS_LED, STATUS_LED_OFF);
+        sleep_ms(1500);
+        uint32_t addr = g_kill_addr;
+        for (unsigned b = 0; b < 16; b++) {
+            gpio_put(GPIO_STATUS_LED, STATUS_LED_ON);
+            sleep_ms((addr & (1u << b)) ? 700 : 100);
+            gpio_put(GPIO_STATUS_LED, STATUS_LED_OFF);
+            sleep_ms(300);
+        }
+    }
+#endif
+
 #if MPI_BEACON_LIVE
     // A lamp rather than a frame: what the *last* pass found, not what has ever
     // been found.  Seventeen pulses take a quarter of a minute to read, which is
@@ -547,7 +579,7 @@ int main(void) {
     }
 #endif
 
-#if MPI_WATCH && !MPI_BEACON_LIVE
+#if MPI_WATCH && !MPI_BEACON_LIVE && !MPI_BEACON_KILLADDR
     // Blink the watchpoint results out, one frame per pass: a long dark gap to
     // mark the start, then one pulse per watchpoint in table order -- long for
     // hit, short for miss.  Every watchpoint gets a pulse whether or not it hit,
