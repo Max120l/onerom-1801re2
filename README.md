@@ -748,6 +748,24 @@ cooling anything else -- the PP, D8, D11, the DRAM banks -- changes nothing. Tha
 control is the whole result: a single component, repeated, with every other
 candidate tried the same way.
 
+### Confirmed in both directions, on the machine's own test
+
+Not on our instruments. With D22 held cold the MS 0511 boots the stock monitor
+and runs its own ТЕСТИРОВАНИЕ suite -- ПРОХОД 4, ОШИБОК 0 -- which it had not
+managed since the thermal fault appeared. Stop cooling and it fails before that
+pass finishes: about a minute, against the ten minutes the whole board takes to
+reach the fault from cold.
+
+That gap is the control. A chip that has been chilled returns to ambient in a
+minute or two while the board takes ten, so failing inside a minute says the
+part's own temperature is the variable and not the air around it. Cooling every
+other candidate the same way -- the PP, D8, D11, the DRAM banks -- changed
+nothing.
+
+It also retroactively clears the memory. The CPU planes pass the machine's own
+test now, so the `- ОШИБКА ОЗУ ЦП` that started this was the dead 4164 on DC7,
+and everything after the repair was D22 making good memory look bad.
+
 ### Why nothing else ever looked wrong
 
 RPLY is the signal that *completes* a bus cycle. It carries no data, so nothing
