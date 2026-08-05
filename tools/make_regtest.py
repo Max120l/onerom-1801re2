@@ -54,7 +54,27 @@ BEACON = 0o176700
 
 B_ALIVE, B_DONE, B_ALT_FAIL, B_CONST_FAIL = 0, 1, 2, 3
 B_BIT0 = 4                           # ...through B_BIT0 + 15
-BEACON_COUNT = B_BIT0 + 16           # 20
+B_LANDED = B_BIT0 + 16               # 20: the PP arrived here from nowhere
+BEACON_COUNT = B_LANDED + 1          # 21
+
+# Unused ROM is filled with NOPs, and that is a correction rather than a detail.
+#
+# It was filled with zeros, and a zero word is HALT. So any stray jump into our
+# 32 KB of ROM landed in a field of halts and the machine stopped dead -- while
+# the stock ROM it replaces has real code at every address and would have carried
+# on. The instrument was making excursions fatal that the real machine survives,
+# and then reporting the death as though it were the machine's.
+#
+# A NOP fill turns the whole image into a slide: land anywhere below the program
+# and execution walks up to it and re-enters the test. The machine recovers by
+# itself, keeps testing, and a derail becomes a countable event rather than the
+# end of the run.
+NOP = 0o000240
+
+# The slide passes through here on its way in; the power-up vector jumps straight
+# to ENTRY and skips it. So this beacon means "arrived by falling through ROM",
+# which no healthy start can produce.
+LANDING = ENTRY - 6
 
 # Both halves of each pair, because a coupling fault is not symmetric: a line
 # dragged toward its neighbour shows up only when the two disagree in one
@@ -126,7 +146,8 @@ def build():
     if BEACON + 2 * BEACON_COUNT > 0o177000:
         raise SystemExit(f"beacons from {BEACON:06o} reach the I/O page")
 
-    rom = bytearray(b"\x00" * ROM_BYTES)
+    words = ROM_BYTES // 2
+    rom = bytearray(struct.pack(f"<{words}H", *([NOP] * words)))
 
     def put(addr, words):
         off = addr - ROM_BASE
@@ -135,6 +156,9 @@ def build():
         rom[off:off + 2 * len(words)] = struct.pack(f"<{len(words)}H", *words)
 
     put(VECTOR, [ENTRY, 0o340])
+    landing = "        mov #%o, r1\n        tst (r1)\n" % (BEACON + 2 * B_LANDED)
+    _, land = assemble(landing, LANDING)
+    put(LANDING, land)
     _, code = assemble(program(), ENTRY)
     put(ENTRY, code)
     return bytes(rom), code
@@ -154,6 +178,7 @@ def main() -> int:
     print(f"    3 alternating patterns failed -- lines interfering")
     print(f"    4 constant patterns failed    -- a bit stuck")
     print(f"    5..{4 + 16} = bit 0..15")
+    print(f"    {B_LANDED + 1} = the PP fell into ROM and slid back in")
     return 0
 
 
