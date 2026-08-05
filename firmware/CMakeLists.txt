@@ -75,6 +75,15 @@ endif()
 # Blink the soak's verdict as one to four flashes instead of a 27-pulse frame.
 # Hardcoded to make_ramtest's beacon map.  See main.c.
 option(MPI_SOAK_DIGIT "Blink the soak verdict as a single digit" OFF)
+
+# Eight pulses naming the plane 0 bits that failed, latched from the first pass
+# where plane 0 failed on its own.  See main.c.
+option(MPI_SOAK_P0BITS "Blink plane 0's failing bits, latched" OFF)
+if(MPI_SOAK_P0BITS AND NOT MPI_BEACON_PASS)
+    message(STATUS "MPI_SOAK_P0BITS implies MPI_BEACON_PASS; enabling it")
+    set(MPI_BEACON_PASS ON)
+    set(MPI_BEACONS ON)
+endif()
 if(MPI_SOAK_DIGIT AND NOT MPI_BEACON_PASS)
     message(STATUS "MPI_SOAK_DIGIT implies MPI_BEACON_PASS; enabling it")
     set(MPI_BEACON_PASS ON)
@@ -108,6 +117,7 @@ target_compile_definitions(mpi_rom PRIVATE
     MPI_BEACON_KILLADDR=$<BOOL:${MPI_BEACON_KILLADDR}>
     MPI_BEACON_LASTADDR=$<BOOL:${MPI_BEACON_LASTADDR}>
     MPI_SOAK_DIGIT=$<BOOL:${MPI_SOAK_DIGIT}>
+    MPI_SOAK_P0BITS=$<BOOL:${MPI_SOAK_P0BITS}>
     MPI_BEACON_PASS=$<BOOL:${MPI_BEACON_PASS}>)
 
 # How many beacon pulses the frame blinks.  Different test ROMs have different

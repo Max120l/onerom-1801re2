@@ -577,6 +577,42 @@ int main(void) {
 
     multicore_launch_core1(serve_forever);
 
+#if MPI_SOAK_P0BITS
+    // Eight pulses: which bits of plane 0 failed, from the first pass in which
+    // plane 0 failed *alone*.
+    //
+    // Latched, and the latching is the point. Plane 0 goes first and by itself
+    // for a pass or two, then the CPU planes follow and everything reads bad --
+    // so the informative pass is over in seconds and any frame that keeps
+    // updating shows the collapse instead of the cause. The first plane-0-only
+    // pass is the evidence; nothing after it is.
+    //
+    // On a bank of 1-bit-wide DRAM each bit is one chip, so this is a list of
+    // parts. Dark frame means it has not happened yet.
+    {
+        uint32_t last_pass = 0;
+        uint32_t latched = 0;
+        bool have = false;
+        while (true) {
+            uint32_t pass = g_pass;
+            if (pass != last_pass) {
+                last_pass = pass;
+                uint32_t b = g_beacons_last;
+                bool p0 = b & (1u << 2);
+                bool p12 = b & ((1u << 4) | (1u << 5));
+                if (p0 && !p12 && !have) {
+                    latched = b >> 8;       // B_BIT0 .. B_BIT0 + 7
+                    have = true;
+                }
+            }
+            frame_marker();
+            for (unsigned i = 0; i < 8; i++) {
+                frame_pulse(have && (latched & (1u << i)), i);
+            }
+        }
+    }
+#endif
+
 #if MPI_SOAK_DIGIT
     // One digit, counted on the fingers of one hand.
     //
@@ -701,7 +737,8 @@ int main(void) {
     }
 #endif
 
-#if MPI_WATCH && !MPI_BEACON_LIVE && !MPI_BEACON_KILLADDR && !MPI_BEACON_LASTADDR && !MPI_SOAK_DIGIT
+#if MPI_WATCH && !MPI_BEACON_LIVE && !MPI_BEACON_KILLADDR && !MPI_BEACON_LASTADDR && !MPI_SOAK_DIGIT \
+    && !MPI_SOAK_P0BITS
     // Blink the watchpoint results out, one frame per pass: a long dark gap to
     // mark the start, then one pulse per watchpoint in table order -- long for
     // hit, short for miss.  Every watchpoint gets a pulse whether or not it hit,
