@@ -577,6 +577,61 @@ int main(void) {
 
     multicore_launch_core1(serve_forever);
 
+#if MPI_SOAK_DIGIT
+    // One digit, counted on the fingers of one hand.
+    //
+    // The soak's frame is twenty-seven pulses, and a reader at a bench cannot
+    // hold that. Reported from the bench, more than once, in exactly those
+    // words -- and a frame nobody can read is not a measurement however much
+    // information it theoretically contains.
+    //
+    // The open question is one thing: did plane 0 fail, and did it fail alone?
+    // That is four states. So blink the answer as one, two, three or four
+    // flashes with a long pause between repeats, and let the twenty-seven-pulse
+    // frame exist for when someone actually wants the bit positions.
+    //
+    //   1  clean -- PP RAM and both CPU planes passed
+    //   2  plane 0 (PP RAM) failed, CPU planes clean
+    //   3  CPU planes failed, plane 0 clean
+    //   4  both failed
+    //   fast flicker  no pass has completed in fifteen seconds
+    //
+    // Hardcoded to the soak's beacon map, and only correct for that ROM.
+    {
+        uint32_t last_pass = 0;
+        unsigned stale_ms = 0, tick = 0;
+        unsigned code = 1;
+        while (true) {
+            uint32_t pass = g_pass;
+            tick++;
+            if (pass != last_pass) {
+                last_pass = pass;
+                stale_ms = 0;
+                uint32_t b = g_beacons_last;
+                bool p0 = b & (1u << 2);                    // PP RAM failed
+                bool p12 = b & ((1u << 4) | (1u << 5));     // plane 1 or 2
+                code = 1 + (p0 ? 1 : 0) + (p12 ? 2 : 0);
+            } else if (stale_ms < 60000) {
+                stale_ms += 25;
+            }
+
+            if (stale_ms >= 15000) {
+                gpio_put(GPIO_STATUS_LED,
+                         (tick / 4) & 1 ? STATUS_LED_ON : STATUS_LED_OFF);
+                sleep_ms(25);
+                continue;
+            }
+            for (unsigned i = 0; i < code; i++) {
+                gpio_put(GPIO_STATUS_LED, STATUS_LED_ON);
+                sleep_ms(250);
+                gpio_put(GPIO_STATUS_LED, STATUS_LED_OFF);
+                sleep_ms(350);
+            }
+            sleep_ms(2500);         // long enough that the count cannot run on
+        }
+    }
+#endif
+
 #if MPI_BEACON_KILLADDR || MPI_BEACON_LASTADDR
     // Sixteen pulses, and they are one number: the address the PP was working on
     // when it last restarted itself, or -- with MPI_BEACON_LASTADDR -- the last
@@ -646,7 +701,7 @@ int main(void) {
     }
 #endif
 
-#if MPI_WATCH && !MPI_BEACON_LIVE && !MPI_BEACON_KILLADDR && !MPI_BEACON_LASTADDR
+#if MPI_WATCH && !MPI_BEACON_LIVE && !MPI_BEACON_KILLADDR && !MPI_BEACON_LASTADDR && !MPI_SOAK_DIGIT
     // Blink the watchpoint results out, one frame per pass: a long dark gap to
     // mark the start, then one pulse per watchpoint in table order -- long for
     // hit, short for miss.  Every watchpoint gets a pulse whether or not it hit,

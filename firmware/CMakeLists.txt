@@ -64,7 +64,6 @@ if(MPI_BEACON_PASS AND NOT MPI_BEACONS)
     message(STATUS "MPI_BEACON_PASS implies MPI_BEACONS; enabling it")
     set(MPI_BEACONS ON)
 endif()
-target_compile_definitions(mpi_rom PRIVATE MPI_BEACON_PASS=$<BOOL:${MPI_BEACON_PASS}>)
 
 if(MPI_BEACON_LIVE AND NOT MPI_BEACONS)
     message(STATUS "MPI_BEACON_LIVE implies MPI_BEACONS; enabling it")
@@ -73,6 +72,15 @@ endif()
 
 # Blink the address of the cycle immediately before the PP last restarted
 # itself -- sixteen pulses, one number, nothing else.  See main.c.
+# Blink the soak's verdict as one to four flashes instead of a 27-pulse frame.
+# Hardcoded to make_ramtest's beacon map.  See main.c.
+option(MPI_SOAK_DIGIT "Blink the soak verdict as a single digit" OFF)
+if(MPI_SOAK_DIGIT AND NOT MPI_BEACON_PASS)
+    message(STATUS "MPI_SOAK_DIGIT implies MPI_BEACON_PASS; enabling it")
+    set(MPI_BEACON_PASS ON)
+    set(MPI_BEACONS ON)
+endif()
+
 option(MPI_BEACON_KILLADDR "Blink the address the PP died on" OFF)
 
 # The same sixteen pulses, but the last address on the bus rather than the last
@@ -98,7 +106,9 @@ target_compile_definitions(mpi_rom PRIVATE
     MPI_BEACONS=$<BOOL:${MPI_BEACONS}>
     MPI_BEACON_LIVE=$<BOOL:${MPI_BEACON_LIVE}>
     MPI_BEACON_KILLADDR=$<BOOL:${MPI_BEACON_KILLADDR}>
-    MPI_BEACON_LASTADDR=$<BOOL:${MPI_BEACON_LASTADDR}>)
+    MPI_BEACON_LASTADDR=$<BOOL:${MPI_BEACON_LASTADDR}>
+    MPI_SOAK_DIGIT=$<BOOL:${MPI_SOAK_DIGIT}>
+    MPI_BEACON_PASS=$<BOOL:${MPI_BEACON_PASS}>)
 
 # How many beacon pulses the frame blinks.  Different test ROMs have different
 # beacon maps: the soak uses 17, the address-bus test 19.  See watch.h.
