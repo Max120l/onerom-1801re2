@@ -309,6 +309,23 @@ static inline void __not_in_flash_func(watch_note)(uint32_t addr) {
 }
 #endif
 
+// The start of a frame, made unmistakable.
+//
+// It used to be a long dark gap, and once the pulses were grouped -- also by
+// dark gaps -- there were three lengths of darkness in the frame and no way to
+// tell which one was the start. A frame whose beginning you cannot find is
+// worse than an ungrouped one, which is what grouping was meant to fix.
+//
+// So the marker is *lit*. Everything structural here is dark and no data pulse
+// exceeds 700 ms, so two and a half seconds of solid LED is the one event in a
+// frame that cannot be mistaken for anything else in it.
+static void __not_in_flash_func(frame_marker)(void) {
+    gpio_put(GPIO_STATUS_LED, STATUS_LED_ON);
+    sleep_ms(2500);
+    gpio_put(GPIO_STATUS_LED, STATUS_LED_OFF);
+    sleep_ms(800);
+}
+
 // One pulse of a frame, with the counting made possible.
 //
 // Frames reached thirty pulses at a uniform cadence, which is not readable by a
@@ -571,8 +588,7 @@ int main(void) {
     // anyway. Dark frame means no restart since the last one -- self-indicating,
     // so no pulse is spent saying whether the reading is valid.
     while (true) {
-        gpio_put(GPIO_STATUS_LED, STATUS_LED_OFF);
-        sleep_ms(1500);
+        frame_marker();
 #if MPI_BEACON_LASTADDR
         uint32_t addr = g_last_addr;
 #else
@@ -640,8 +656,7 @@ int main(void) {
     // Nothing is ever cleared: these are "did this ever happen since power-on"
     // facts, and a frame that changes between passes is itself informative.
     while (true) {
-        gpio_put(GPIO_STATUS_LED, STATUS_LED_OFF);
-        sleep_ms(2500);                                  // frame marker
+        frame_marker();
 
         // A second of dark bus. Core 1 cannot notice this -- it is blocked in
         // pio_sm_get_blocking waiting for a strobe that is not coming -- so the
