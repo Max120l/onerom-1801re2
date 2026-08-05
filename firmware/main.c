@@ -190,6 +190,21 @@ static volatile uint32_t g_trap_vec;
 // gone to zero walks 0, 2, 4 in order and the first of those is the finding.
 static volatile bool g_trap_vec_seen;
 #endif
+#if MPI_SOAK_P0BITS
+// Plane 0's failing bits, captured on core 1 the instant a pass completes.
+//
+// Core 0 cannot do this. It samples the pass counter once per frame, and a frame
+// is about eight seconds while a soak pass is a few -- so it sees perhaps one
+// pass in three. The window this is trying to catch is one pass wide: plane 0
+// fails alone, and by the next pass the whole memory has gone and the evidence
+// with it. An instrument that samples slower than the event it is looking for
+// will simply never see it.
+//
+// On core 1 every completed pass is examined, so a window one pass wide is
+// caught the first time it happens.
+static volatile uint32_t g_p0_bits;
+static volatile bool g_p0_have;
+#endif
 #else
 #define WATCH_PULSES  (count_of(g_watch) + BUS_EVENT_COUNT + 1 + 2)
 #endif
@@ -283,6 +298,15 @@ static inline void __not_in_flash_func(watch_note)(uint32_t addr) {
         // by a pass boundary, which would drop a whole pass's verdict.
         if (b == PP_BEACON_DONE) {
             g_beacons_last = g_beacons;
+#if MPI_SOAK_P0BITS
+            // Plane 0 failed and the CPU planes did not: the one informative
+            // pass, and it may be the only one.
+            if (!g_p0_have && (g_beacons & (1u << 2))
+                && !(g_beacons & ((1u << 4) | (1u << 5)))) {
+                g_p0_bits = (g_beacons >> 8) & 0xFF;
+                g_p0_have = true;
+            }
+#endif
             g_beacons = 0;
             g_pass++;
         }
@@ -589,26 +613,12 @@ int main(void) {
     //
     // On a bank of 1-bit-wide DRAM each bit is one chip, so this is a list of
     // parts. Dark frame means it has not happened yet.
-    {
-        uint32_t last_pass = 0;
-        uint32_t latched = 0;
-        bool have = false;
-        while (true) {
-            uint32_t pass = g_pass;
-            if (pass != last_pass) {
-                last_pass = pass;
-                uint32_t b = g_beacons_last;
-                bool p0 = b & (1u << 2);
-                bool p12 = b & ((1u << 4) | (1u << 5));
-                if (p0 && !p12 && !have) {
-                    latched = b >> 8;       // B_BIT0 .. B_BIT0 + 7
-                    have = true;
-                }
-            }
-            frame_marker();
-            for (unsigned i = 0; i < 8; i++) {
-                frame_pulse(have && (latched & (1u << i)), i);
-            }
+    while (true) {
+        bool have = g_p0_have;
+        uint32_t latched = g_p0_bits;
+        frame_marker();
+        for (unsigned i = 0; i < 8; i++) {
+            frame_pulse(have && (latched & (1u << i)), i);
         }
     }
 #endif
