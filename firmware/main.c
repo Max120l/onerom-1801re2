@@ -303,6 +303,25 @@ static inline void __not_in_flash_func(watch_note)(uint32_t addr) {
 }
 #endif
 
+// One pulse of a frame, with the counting made possible.
+//
+// Frames reached thirty pulses at a uniform cadence, which is not readable by a
+// human being: the reader has to hold a running count across half a minute and a
+// single miscount silently renames every pulse after it. On hardware that is not
+// a theoretical risk -- a frame was read as 22/24/26 when it was 22/23/24/26,
+// and the two decode to different faults.
+//
+// So group them in fives with a longer gap between groups, the way anyone reads
+// a long number. "Group four, pulse two" needs no running count and survives
+// looking away.
+static void __not_in_flash_func(frame_pulse)(bool lit, unsigned index) {
+    gpio_put(GPIO_STATUS_LED, STATUS_LED_ON);
+    // 7:1 -- long enough to be unmistakable without making a frame interminable.
+    sleep_ms(lit ? 700 : 100);
+    gpio_put(GPIO_STATUS_LED, STATUS_LED_OFF);
+    sleep_ms(((index + 1) % 5 == 0) ? 900 : 300);
+}
+
 // Direction masks over the 24-bit GPIO field.
 static uint32_t g_dirs_ad, g_dirs_ad_rply;
 
@@ -554,10 +573,7 @@ int main(void) {
         uint32_t addr = g_kill_addr;
 #endif
         for (unsigned b = 0; b < 16; b++) {
-            gpio_put(GPIO_STATUS_LED, STATUS_LED_ON);
-            sleep_ms((addr & (1u << b)) ? 700 : 100);
-            gpio_put(GPIO_STATUS_LED, STATUS_LED_OFF);
-            sleep_ms(300);
+            frame_pulse(addr & (1u << b), b);
         }
     }
 #endif
@@ -619,7 +635,7 @@ int main(void) {
     // facts, and a frame that changes between passes is itself informative.
     while (true) {
         gpio_put(GPIO_STATUS_LED, STATUS_LED_OFF);
-        sleep_ms(1500);                                  // frame marker
+        sleep_ms(2500);                                  // frame marker
 
         // A second of dark bus. Core 1 cannot notice this -- it is blocked in
         // pio_sm_get_blocking waiting for a strobe that is not coming -- so the
@@ -714,14 +730,7 @@ int main(void) {
         }
 #endif
         for (unsigned i = 0; i < WATCH_PULSES; i++) {
-            gpio_put(GPIO_STATUS_LED, STATUS_LED_ON);
-            // 7:1, still unmistakable. Shortened from 10:1 as pulses were added
-            // -- at 1000/400 a thirteen-pulse frame takes twenty seconds to
-            // read, and a frame nobody has the patience to finish is worse than
-            // one with slightly less contrast.
-            sleep_ms((hits & (1u << i)) ? 700 : 100);
-            gpio_put(GPIO_STATUS_LED, STATUS_LED_OFF);
-            sleep_ms(300);
+            frame_pulse(hits & (1u << i), i);
         }
     }
 #endif
