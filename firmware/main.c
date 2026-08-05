@@ -220,7 +220,15 @@ static inline void __not_in_flash_func(watch_note)(uint32_t addr) {
         // meets a bus condition it cannot survive re-enters through its power-up
         // vector with no ACLO or DCLO involved, so from outside the only trace
         // of what went wrong is the address it was working on when it went.
-        g_kill_addr = prev2;
+        //
+        // Except at power-on, where the restart is real but there is no history
+        // behind it -- the vector fetch is the first thing the PP ever does. The
+        // sentinel then got blinked out as 177777, an address that looks like a
+        // finding and is not. A machine that has not faulted yet must produce a
+        // dark frame, or the instrument answers before the question is asked.
+        if (prev2 != 0xFFFFFFFF) {
+            g_kill_addr = prev2;
+        }
         g_boot++;
         g_watch_hits = 0;
         g_mismatch = 0;
