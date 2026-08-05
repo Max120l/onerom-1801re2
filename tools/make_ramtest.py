@@ -110,7 +110,23 @@ B_BIT0 = 8
 # every bit position, which no collection of independent weak cells does and
 # which losing refresh, the RAS/CAS timing, or the supply rail does every time.
 B_ALL_AT_ONCE = 16
-BEACON_COUNT = 17
+# The PP arrived by falling through ROM rather than through its power-up vector.
+B_LANDED = 17
+BEACON_COUNT = 18
+
+# Unused ROM is NOPs, not zeros, and a zero word is HALT.
+#
+# Filled with zeros, this image was 32 KB of halts, so any stray jump into ROM
+# stopped the machine dead -- while the stock ROM it stands in for has real code
+# everywhere and would have carried on. Every soak that ended in a wedge ended
+# that way partly because of the instrument, which makes any conclusion drawn
+# from how it died unsafe.
+#
+# NOPs make the image a slide: land below the program and execution walks up and
+# re-enters the test. LANDING sits where the slide passes and the power-up vector
+# does not, so its beacon means "fell into ROM", which no healthy start produces.
+NOP = 0o000240
+LANDING = ENTRY - 6
 
 def program(ram_top, plane_words, live=False):
     # Where the accumulators get cleared is the whole difference between the two
@@ -379,7 +395,8 @@ def build(ram_top=PP_RAM_TOP, plane_words=PLANE_WORDS, live=False):
     if plane_words > 0o100000:
         raise SystemExit(f"plane_words {plane_words:06o} exceeds a plane")
 
-    rom = bytearray(b"\x00" * ROM_BYTES)
+    nwords = ROM_BYTES // 2
+    rom = bytearray(struct.pack(f"<{nwords}H", *([NOP] * nwords)))
 
     def put(addr, words):
         off = addr - ROM_BASE
@@ -388,6 +405,9 @@ def build(ram_top=PP_RAM_TOP, plane_words=PLANE_WORDS, live=False):
         rom[off:off + 2 * len(words)] = struct.pack(f"<{len(words)}H", *words)
 
     put(VECTOR, [ENTRY, 0o340])          # PC, PSW with interrupts masked
+    _, land = assemble("        mov #%o, r1\n        tst (r1)\n"
+                       % (BEACON + 2 * B_LANDED), LANDING)
+    put(LANDING, land)
     _, code = assemble(program(ram_top, plane_words, live), ENTRY)
     put(ENTRY, code)
     return bytes(rom), code
