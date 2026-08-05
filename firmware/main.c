@@ -110,6 +110,21 @@ static volatile uint32_t g_mismatch;
 // The address of the cycle immediately before the last restart.  See watch_note.
 static volatile uint32_t g_kill_addr;
 
+// ...and the most recent address, restart or no restart.
+//
+// The restart version answers only one of the three ways this machine stops. It
+// can also wedge on a cycle that never completes, or run off into RAM, and both
+// leave that frame dark -- an instrument reporting nothing about a machine that
+// has plainly failed.
+//
+// This one covers all three, because the capture machine latches on the address
+// strobe: a PP waiting forever for a reply has already put its address on the
+// bus, so the last thing we saw IS the cycle it is stuck on. While the machine
+// runs the value churns and the frame differs every time; the moment it stops,
+// the frame freezes on the answer. "Has it stopped" and "where" become the same
+// reading.
+static volatile uint32_t g_last_addr;
+
 // Which block the checksum was comparing when it last found a mismatch, and the
 // stored sum most recently read.  See CHK_CMP_EXT in watch.h.
 static volatile uint32_t g_last_sum = CHK_SUM_LOW;
@@ -282,6 +297,7 @@ static inline void __not_in_flash_func(watch_note)(uint32_t addr) {
             g_watch_hits |= 1u << i;
         }
     }
+    g_last_addr = addr;
     prev2 = prev;
     prev = addr;
 }
@@ -519,9 +535,10 @@ int main(void) {
 
     multicore_launch_core1(serve_forever);
 
-#if MPI_BEACON_KILLADDR
+#if MPI_BEACON_KILLADDR || MPI_BEACON_LASTADDR
     // Sixteen pulses, and they are one number: the address the PP was working on
-    // when it last restarted itself.
+    // when it last restarted itself, or -- with MPI_BEACON_LASTADDR -- the last
+    // address it put on the bus at all.
     //
     // Everything else in this file reports what a test found. This reports what
     // the machine was doing at the instant it stopped being able to run, which
@@ -531,7 +548,11 @@ int main(void) {
     while (true) {
         gpio_put(GPIO_STATUS_LED, STATUS_LED_OFF);
         sleep_ms(1500);
+#if MPI_BEACON_LASTADDR
+        uint32_t addr = g_last_addr;
+#else
         uint32_t addr = g_kill_addr;
+#endif
         for (unsigned b = 0; b < 16; b++) {
             gpio_put(GPIO_STATUS_LED, STATUS_LED_ON);
             sleep_ms((addr & (1u << b)) ? 700 : 100);
@@ -587,7 +608,7 @@ int main(void) {
     }
 #endif
 
-#if MPI_WATCH && !MPI_BEACON_LIVE && !MPI_BEACON_KILLADDR
+#if MPI_WATCH && !MPI_BEACON_LIVE && !MPI_BEACON_KILLADDR && !MPI_BEACON_LASTADDR
     // Blink the watchpoint results out, one frame per pass: a long dark gap to
     // mark the start, then one pulse per watchpoint in table order -- long for
     // hit, short for miss.  Every watchpoint gets a pulse whether or not it hit,
