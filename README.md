@@ -740,6 +740,76 @@ and watch whether it changes value between the RAS phase and the CAS phase. Pins
 that stop changing at column time, all of them, means the column half of the
 multiplexer; specific pins dead in both phases means those lines.
 
+## The thermal fault: D22, and why everything else measured clean
+
+The answer is **D22, a КР1801ВП1-055 gate array, which drives RPLY on the
+peripheral processor's bus.** Cooling it keeps the machine running indefinitely;
+cooling anything else -- the PP, D8, D11, the DRAM banks -- changes nothing. That
+control is the whole result: a single component, repeated, with every other
+candidate tried the same way.
+
+### Why nothing else ever looked wrong
+
+RPLY is the signal that *completes* a bus cycle. It carries no data, so nothing
+it does can be caught by a test that checks values -- and every test in this
+repository checks values. That is why the list of things measured clean grew so
+long and so useless:
+
+| measured | result |
+| --- | --- |
+| both CPU planes, zeros and ones fills, with a third of a second between write and check | clean, every run |
+| the plane address register, alternating and constant patterns | clean |
+| RAS and CAS at the DRAM pins, healthy vs failed | CAS Vrms 3.84 V against 3.92 V |
+| the data we drive, sampled at our own pads on every served cycle | clean |
+| plane 0's eight chips, all replaced | no change |
+| D8, D11, the CPU, the ROM socket, all reflowed | no change |
+
+Nothing is ever *stored* wrong, so every storage test passes. What fails is
+*when* the processor is told a cycle is finished.
+
+### The symptoms, and what each one was
+
+Every observation in this file's history is a completion failure seen from a
+different angle:
+
+- **hangs.** RPLY never arrives, the cycle never ends, and a 1801 has nothing to
+  time it out. The last-address frame froze on 0000246 with no trap, no restart,
+  and no further bus activity -- a cycle simply left open.
+- **wrong data.** RPLY arriving late means the processor latches the bus at the
+  wrong instant, when some lines have settled and others have not. Which bits are
+  wrong then depends on the pattern -- which is very likely the odd-bit
+  "adjacent-line coupling" fingerprint that was reproducible for days and then
+  refused to appear on a test that used the same register with no memory behind
+  it.
+- **wild jumps.** An instruction fetch completed at the wrong moment returns a
+  word that is not the instruction, and the PC goes somewhere arbitrary.
+- **plane 0 first.** DRAM cycles have the least timing margin and register
+  transfers the most, so as margin erodes the PP's own memory -- reached by
+  ordinary `mov r0, (r0)`, the slowest path in the test -- fails while 177010 and
+  177014 still work. The soak's digit readout showed exactly that ordering:
+  1, then 2, then 4.
+- **everything else, afterwards.** Plane 0 is the PP's own RAM, holding its
+  vectors, its stack and the video tag list. Once it goes the PP corrupts itself,
+  the test running on it reports the CPU planes bad, and the screen falls to the
+  uninitialised vertical lines. The delay before that second stage varied from
+  one pass to seven, which is what a consequence looks like rather than a second
+  independent fault.
+
+### The method note
+
+The instrument was wrong more often than the machine was surprising. Frames that
+latched when they should have cleared and cleared when they should have latched;
+32 KB of ROM filled with HALT instructions, which turned every excursion the real
+machine survives into a death; a trap-vector capture that could not represent
+zero; a per-frame sample of an event one pass wide; and three iterations of an
+LED format before it could be read reliably at a bench.
+
+The two habits that eventually worked: **run the control** -- cool the other
+chips too, or the effect belongs to the board and not the part -- and **prefer a
+number to a shape**, because six single-shot scope captures of RAS and CAS
+produced three confident and contradictory conclusions, and one Vrms reading
+settled it.
+
 ## Resolved
 
 With the chip on DC7 replaced, the plane test passes and the MS 0511 reaches the
