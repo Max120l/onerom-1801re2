@@ -28,10 +28,10 @@ Bits that the constant passes implicated are removed from the address report,
 because a stuck data bit shows up in the address pass too and would otherwise be
 read as an address line. What survives is addressing and nothing else.
 
-    ./make_addrtest.py -o addrtest.bin
-    ./gen_rom_images.py --logical addrtest.bin -o ../firmware/rom_images.c
-    cmake -S ../firmware -B ../firmware/build-addr -G Ninja \
-        -DMPI_BEACONS=ON -DMPI_BEACON_COUNT=20
+    ./tools/diag/make_addrtest.py -o addrtest.bin
+    ./tools/rom/gen_rom_images.py --logical addrtest.bin -o firmware/rom_images.c
+    cmake -S firmware -B firmware/build-addr -G Ninja \
+        -DMPI_BEACONS=ON -DMPI_BEACON_COUNT=27 -DMPI_BEACON_DONE=1
 
 Only planes 1 and 2 are tested, and only through the plane ports. That is
 deliberate: the ports are the one path that reaches the array with the central
@@ -44,6 +44,10 @@ import argparse
 import struct
 import sys
 from pathlib import Path
+
+# pdp11asm.py sits one level up, in tools/, because it is shared: the ROM-side
+# tooling reads code with it too.  Only the instruments live in this directory.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from pdp11asm import assemble
 

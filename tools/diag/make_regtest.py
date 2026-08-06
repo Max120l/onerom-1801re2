@@ -32,16 +32,20 @@ all along.
     alternating fails, constants clean  ->  lines interfering, not bits failing
     constants fail                      ->  an ordinary stuck bit, and which one
 
-    ./make_regtest.py -o regtest.bin
-    ./gen_rom_images.py --logical regtest.bin -o ../firmware/rom_images.c
-    cmake -S ../firmware -B ../firmware/build-reg -G Ninja \
-        -DMPI_BEACON_PASS=ON -DMPI_BEACON_COUNT=20 -DMPI_BEACON_DONE=1
+    ./tools/diag/make_regtest.py -o regtest.bin
+    ./tools/rom/gen_rom_images.py --logical regtest.bin -o firmware/rom_images.c
+    cmake -S firmware -B firmware/build-reg -G Ninja \
+        -DMPI_BEACON_PASS=ON -DMPI_BEACON_COUNT=21 -DMPI_BEACON_DONE=1
 """
 
 import argparse
 import struct
 import sys
 from pathlib import Path
+
+# pdp11asm.py sits one level up, in tools/, because it is shared: the ROM-side
+# tooling reads code with it too.  Only the instruments live in this directory.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from pdp11asm import assemble
 

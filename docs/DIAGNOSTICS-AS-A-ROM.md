@@ -2,6 +2,9 @@
 
 *An idea worth building properly, written down while the reasons are fresh.*
 
+For what actually exists today rather than what should, see
+[DIAGNOSTICS.md](DIAGNOSTICS.md).
+
 Everything in this repository was built to find one fault in one machine, and
 almost none of it is really about that machine. The general thing underneath is:
 

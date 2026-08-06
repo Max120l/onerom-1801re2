@@ -12,9 +12,10 @@ set(CMAKE_C_STANDARD 11)
 pico_sdk_init()
 
 add_executable(mpi_rom
-    main.c
-    decode.c
-    rom_images.c        # generated: tools/gen_rom_images.py
+    main.c              # the ROM emulator
+    decode.c            # address decode, host-testable
+    diag.c              # the diagnostics; compiles to nothing without MPI_WATCH
+    rom_images.c        # generated: tools/rom/gen_rom_images.py
 )
 
 pico_generate_pio_header(mpi_rom ${CMAKE_CURRENT_LIST_DIR}/mpi_rom.pio)
@@ -37,7 +38,7 @@ option(MPI_RPLY_ASSIST "Assist the rising edge of nRPLY" OFF)
 target_compile_definitions(mpi_rom PRIVATE MPI_RPLY_ASSIST=$<BOOL:${MPI_RPLY_ASSIST}>)
 
 # Report our own test ROM's beacons on the LED instead of the stock monitor's
-# behaviour.  Pair with an image built by tools/make_ramtest.py.
+# behaviour.  Pair with an image built by tools/diag/make_ramtest.py.
 option(MPI_BEACONS "Blink the test ROM's beacons rather than watchpoints" OFF)
 
 # MPI_BEACONS needs MPI_WATCH, and silently did not say so. Beacon counting and
@@ -71,13 +72,13 @@ if(MPI_BEACON_LIVE AND NOT MPI_BEACONS)
 endif()
 
 # Blink the address of the cycle immediately before the PP last restarted
-# itself -- sixteen pulses, one number, nothing else.  See main.c.
+# itself -- sixteen pulses, one number, nothing else.  See diag.c.
 # Blink the soak's verdict as one to four flashes instead of a 27-pulse frame.
-# Hardcoded to make_ramtest's beacon map.  See main.c.
+# Hardcoded to make_ramtest's beacon map.  See diag.c.
 option(MPI_SOAK_DIGIT "Blink the soak verdict as a single digit" OFF)
 
 # Eight pulses naming the plane 0 bits that failed, latched from the first pass
-# where plane 0 failed on its own.  See main.c.
+# where plane 0 failed on its own.  See diag.c.
 option(MPI_SOAK_P0BITS "Blink plane 0's failing bits, latched" OFF)
 if(MPI_SOAK_P0BITS AND NOT MPI_BEACON_PASS)
     message(STATUS "MPI_SOAK_P0BITS implies MPI_BEACON_PASS; enabling it")
@@ -94,7 +95,7 @@ option(MPI_BEACON_KILLADDR "Blink the address the PP died on" OFF)
 
 # The same sixteen pulses, but the last address on the bus rather than the last
 # one before a restart -- so a PP that wedges or runs off into RAM is covered
-# too, not only one that restarts.  See main.c.
+# too, not only one that restarts.  See diag.c.
 option(MPI_BEACON_LASTADDR "Blink the last address seen on the bus" OFF)
 if(MPI_BEACON_LASTADDR AND NOT MPI_WATCH)
     message(STATUS "MPI_BEACON_LASTADDR implies MPI_WATCH; enabling it")
@@ -121,8 +122,9 @@ target_compile_definitions(mpi_rom PRIVATE
     MPI_BEACON_PASS=$<BOOL:${MPI_BEACON_PASS}>)
 
 # How many beacon pulses the frame blinks.  Different test ROMs have different
-# beacon maps: the soak uses 17, the address-bus test 19.  See watch.h.
-set(MPI_BEACON_COUNT "" CACHE STRING "Beacons in the frame (default 17)")
+# beacon maps: the soak uses 18, the address-bus test 27, the register test 21.
+# Each generator prints its own count.  See PP_BEACON_COUNT in watch.h.
+set(MPI_BEACON_COUNT "" CACHE STRING "Beacons in the frame (default 18)")
 if(MPI_BEACON_COUNT)
     target_compile_definitions(mpi_rom PRIVATE PP_BEACON_COUNT=${MPI_BEACON_COUNT})
 endif()

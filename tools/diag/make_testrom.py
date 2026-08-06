@@ -16,8 +16,8 @@ program and the instrument watching it, which no mask ROM could be.
 Beacons sit in PP RAM near the top, so a read there disturbs nothing; only the
 address matters, never the data.
 
-    ./make_testrom.py -o testrom.bin
-    ./gen_rom_images.py --raw testrom.bin -o ../firmware/rom_images.c
+    ./tools/diag/make_testrom.py -o testrom.bin
+    ./tools/rom/gen_rom_images.py --raw testrom.bin -o firmware/rom_images.c
 
 Test it in ukncbtl before it goes near hardware -- the emulator takes the same
 32 KB image and costs nothing to be wrong in.
@@ -27,6 +27,10 @@ import argparse
 import struct
 import sys
 from pathlib import Path
+
+# pdp11asm.py sits one level up, in tools/, because it is shared: the ROM-side
+# tooling reads code with it too.  Only the instruments live in this directory.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from pdp11asm import assemble
 

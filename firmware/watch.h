@@ -276,20 +276,33 @@ enum {
 // project has confirmed seeing has been one of ours.
 //
 // -DMPI_BEACONS=ON replaces the monitor watchpoints in the LED frame with one
-// pulse per beacon. Keep in step with tools/make_ramtest.py.
+// pulse per beacon. Keep in step with tools/diag/make_ramtest.py.
 #define PP_BEACON_BASE   0176700
 
-// How many beacons the frame blinks. The soak in tools/make_ramtest.py uses 17;
-// the address-bus test in tools/make_addrtest.py has a different map and a
-// different count, so this is overridable from CMake (-DMPI_BEACON_COUNT=19)
-// rather than being a number two ROMs have to agree on by luck.
+// How many beacons the frame blinks. This is the soak's count; every other test
+// ROM has a different map and a different length, so it is overridable from
+// CMake (-DMPI_BEACON_COUNT=27) rather than being a number two ROMs have to
+// agree on by luck. Each generator prints its own count when it builds an image:
+//
+//   tools/diag/make_ramtest.py    18   (the default here)
+//   tools/diag/make_addrtest.py   27
+//   tools/diag/make_regtest.py    21
+//   tools/diag/make_testrom.py     4   (and beacons at 077700, not here)
 //
 // It only controls how many pulses come out. Getting it too small truncates the
 // frame; too large adds dark pulses at the end. Neither corrupts anything, but
 // both make the frame lie about which pulse is which, so set it to match the ROM
 // being flashed.
+//
+// It was 17 while the soak had 17 beacons, and stayed 17 when the soak grew an
+// eighteenth -- the landing beacon, which fires when the PP falls through the
+// NOP slide instead of starting from its vector. So the default frame silently
+// dropped the one pulse that reports a derail: the instrument stopped showing
+// the failure mode it had just been extended to detect. A count that trails its
+// ROM by one is invisible precisely because a missing last pulse looks like the
+// end of the frame.
 #ifndef PP_BEACON_COUNT
-#define PP_BEACON_COUNT  17
+#define PP_BEACON_COUNT  18
 #endif
 
 // ---------------------------------------------------------------------------

@@ -1,13 +1,13 @@
 __pycache__/
 *.pyc
+
+# Generated: it holds actual ROM contents, which have no business in a
+# repository. tools/rom/gen_rom_images.py rebuilds it from dumps.
 firmware/rom_images.c
+
+# Build trees. One per diagnostic variant is the normal way to work here --
+# they differ only by -D flags, so keeping them side by side is how two builds
+# get compared without a reconfigure.
 firmware/build/
-test/build/
-firmware/build-watch/
-firmware/build-watch-nocs/
-firmware/build-assist/
-firmware/build-assist-plain/
-firmware/build-watch-200/
-firmware/build-ramtest/
-firmware/build-200/
 firmware/build-*/
+test/build/

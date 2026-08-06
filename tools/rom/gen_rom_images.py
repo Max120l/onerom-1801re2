@@ -5,7 +5,7 @@ Each dump is converted out of programmer order (see re2_convert.py) and emitted
 as a 4096-word array in CPU order.  The chip code stored in the dump trailer
 decides which 8 KB window the image answers for; pass --code to override it.
 
-    ./gen_rom_images.py -o ../firmware/rom_images.c 017_bk0010.rom 106_bk0010.rom
+    ./gen_rom_images.py -o ../../firmware/rom_images.c 017_bk0010.rom 106_bk0010.rom
 """
 
 import argparse
@@ -13,8 +13,16 @@ import re
 import sys
 from pathlib import Path
 
-import selftest
 from re2_convert import CODE_TO_BASE, convert, split_dump, words
+
+# The self-test pattern is an instrument -- it tests the board's own wiring
+# rather than carrying anything the machine wants to run -- so it lives with the
+# other diagnostics.  This generator is where the two halves of the repository
+# meet: --selftest emits that pattern into the same rom_images.c a real dump
+# would produce, and the firmware cannot tell the difference.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "diag"))
+
+import selftest  # noqa: E402
 
 
 def emit_selftest(output: Path, full_window: bool) -> int:

@@ -23,8 +23,8 @@ what comes back name which plane failed.
 Writing 177010 latches the data registers from all three planes at once, so a
 read is: put the address in 177010, then read 177014.
 
-    ./make_ramtest.py -o ramtest.bin
-    ./gen_rom_images.py --code 0 ramtest.bin -o ../firmware/rom_images.c
+    ./tools/diag/make_ramtest.py -o ramtest.bin
+    ./tools/rom/gen_rom_images.py --code 0 ramtest.bin -o firmware/rom_images.c
 
 Results come back as beacons -- reads of reserved addresses in PP RAM, which
 the board sees go past. Build the firmware with -DMPI_BEACONS=ON to have the
@@ -35,6 +35,10 @@ import argparse
 import struct
 import sys
 from pathlib import Path
+
+# pdp11asm.py sits one level up, in tools/, because it is shared: the ROM-side
+# tooling reads code with it too.  Only the instruments live in this directory.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from pdp11asm import assemble
 
