@@ -120,3 +120,75 @@ is a guess with a confident voice.
 - Is there a useful "generic" first test — one that assumes nothing about the
   host except that it fetches from the socket, and reports whether it is running
   at all, how fast, and what it reads?
+
+---
+
+# Emulating the other chips, not just the ROM
+
+*Max's second idea, and it generalises the first one further than it looks.*
+
+The 1801ВП1 family is a set of semi-custom gate arrays used across Soviet PDP-11
+clones, in a distinctive 42-pin package, and they are exactly the parts that
+cannot be bought when one dies. Emulating them from a microcontroller in that
+footprint would be worth a great deal to anyone restoring these machines.
+
+It works for some of them and not others, and the line between is sharp.
+
+## The test: does anything wait for it?
+
+This is why OneROM works at all, and it is stated in `firmware/main.c`:
+
+> Being late costs wait states, not corruption.
+
+The MPI bus has a handshake. A ROM may take a microsecond to answer and the
+machine simply waits, so an emulator a hundred times slower than the original is
+functionally perfect. **That property is the whole licence for emulating a chip
+with software.**
+
+A bus transceiver has no handshake — it is in the path *of* the handshake.
+Nothing waits for it, because everything is waiting through it.
+
+| emulate in software | why |
+| --- | --- |
+| ROM, RAM | the bus waits; proven by this project |
+| UART, timer, keyboard, disk controllers | register-based, microsecond response, handshake gives slack |
+| interrupt controllers | responds to a request rather than sitting in a combinational path |
+
+| do not emulate in software | why |
+| --- | --- |
+| bus transceivers, e.g. the -055 | nothing waits; the emulator *is* the path |
+| address multiplexers, DRAM strobe generators | nanosecond windows, no handshake at all |
+| decoders and glue | must settle before the cycle can proceed |
+
+The numbers, for the -055 specifically: an RP2350 sampling sixteen pins,
+inverting and driving sixteen others costs the input synchroniser, a few PIO
+cycles and the pad delays — call it 30–40 ns at 150 MHz. A 74x640 is around 10,
+and the original is one to three gate delays. Inserting that into a bus whose
+failure mode is *already* timing margin would make things worse, not better.
+
+## One board, two populations
+
+The two columns want different silicon but the same mechanics, so it is one
+project rather than two: **a 42-pin footprint adapter, populated either way.**
+
+- **RP2350** for the register-like variants — and the bus interface is already
+  written. The PIO programs, the address decode, the reply handshake and the
+  whole diagnostic apparatus in this repository transfer directly.
+- **CPLD** for the glue variants — an ATF1504AS or similar, where the answer is
+  combinational logic at wire speed and there is nothing to run.
+
+Same board, same pins, same adapter, one decision at assembly time.
+
+## Why this follows from the ROM work rather than being a new idea
+
+A ROM emulator turned out to be a diagnostic port because it is both the source
+of the code and an observer of the bus. A peripheral emulator in the same family
+is the same thing again: it can serve a device, lie about a device, or simply
+report every access to a device — which is a second kind of instrument for a
+machine that cannot yet print anything.
+
+And it inherits the lesson that cost the most time here: **build the simulator
+first.** Every test in this repository was wrong at least once in a way only a
+model caught. An emulated peripheral that has never been run against a model of
+its host is a guess with a confident voice, and this time the guess would be
+wired into the machine rather than watching it.
