@@ -766,6 +766,20 @@ It also retroactively clears the memory. The CPU planes pass the machine's own
 test now, so the `- ОШИБКА ОЗУ ЦП` that started this was the dead 4164 on DC7,
 and everything after the repair was D22 making good memory look bad.
 
+### What D22 actually is
+
+A **16-bit bidirectional bus transceiver with inversion** — the transceiver
+between the machine's inverted AD bus and the peripheral processor's internal
+bus, so it sits in the path of every instruction fetched and every word read or
+written. Its logic diagram is published; the pin table, the reasoning and a
+substitute built from two 74x640s are in
+[docs/D22-KR1801VP1-055.md](docs/D22-KR1801VP1-055.md).
+
+That it is a pass-through rather than a storage element is the whole explanation
+for the shape of this investigation: nothing is ever *stored* wrong, so every
+memory test, register pattern and retention check came back clean while the
+machine plainly did not work.
+
 ### What has been eliminated since
 
 **The bypass capacitor.** D22's decoupling was pulled, measured, and replaced
