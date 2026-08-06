@@ -782,9 +782,15 @@ machine plainly did not work.
 
 ### What has been eliminated since
 
-**The bypass capacitor.** D22's decoupling was pulled, measured, and replaced
-with a modern 100 nF. No change in behaviour. The board decouples every IC with
-the same part, so there was no odd-one-out to find either.
+**The bypass capacitor.** D22's decoupling was pulled and measured: **47 nF**,
+which is a correct decoupling value and in tolerance. Replaced with a modern
+100 nF anyway -- no change in behaviour. The board uses the same part at every
+IC, so there was no odd-one-out to find either. Cleared twice over: the value is
+right, and improving it does nothing.
+
+(The marking reads `47н`. Read from a blurry photograph it looked like `47п`,
+which would have been 47 pF -- a thousand times too small and a very promising
+lead. It was worth chasing and it was worth measuring rather than believing.)
 
 **Latched state of any kind.** The machine recovers *without a power cycle*:
 cool D22 and a soft reset on the front panel button brings it straight back. So
