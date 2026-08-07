@@ -1,6 +1,6 @@
 #include <string.h>
 
-#include "board_fire24e.h"
+#include "board.h"
 #include "decode.h"
 
 static const uint8_t g_ad_gpio[16] = AD_GPIO;

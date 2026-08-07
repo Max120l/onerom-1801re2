@@ -15,10 +15,36 @@ add_executable(mpi_rom
     main.c              # the ROM emulator
     decode.c            # address decode, host-testable
     diag.c              # the diagnostics; compiles to nothing without MPI_WATCH
+    status.c            # the status light; compiles to nothing on rev E
     rom_images.c        # generated: tools/rom/gen_rom_images.py
 )
 
 pico_generate_pio_header(mpi_rom ${CMAKE_CURRENT_LIST_DIR}/mpi_rom.pio)
+pico_generate_pio_header(mpi_rom ${CMAKE_CURRENT_LIST_DIR}/ws2812.pio)
+
+# Which One ROM Fire 24 revision this is going into.
+#
+# The two boards' socket-to-GPIO maps are identical in every signal pin, so
+# nothing on the serving path changes.  What moves is the status indicator --
+# rev F carries a WS2812B where rev E has a plain LED, on the same GPIO -- and
+# the jumper GPIOs behind the same silkscreen letters.
+#
+# Getting it wrong is not destructive but it is silent until you are standing
+# at the machine: a rev E build leaves a rev F pixel dark, and a rev F build
+# bit-bangs 800 kHz at a rev E LED.  So it is a named option rather than
+# anything inferred, and rev E is the default because that is the board this
+# firmware was developed and proven on.
+set(ONEROM_BOARD "FIRE24E" CACHE STRING "Board revision: FIRE24E or FIRE24F")
+set_property(CACHE ONEROM_BOARD PROPERTY STRINGS FIRE24E FIRE24F)
+if(NOT ONEROM_BOARD MATCHES "^(FIRE24E|FIRE24F)$")
+    message(FATAL_ERROR "ONEROM_BOARD must be FIRE24E or FIRE24F")
+endif()
+if(ONEROM_BOARD STREQUAL "FIRE24F")
+    target_compile_definitions(mpi_rom PRIVATE ONEROM_BOARD_FIRE24F=1)
+else()
+    target_compile_definitions(mpi_rom PRIVATE ONEROM_BOARD_FIRE24F=0)
+endif()
+message(STATUS "Board: One ROM Fire 24 (${ONEROM_BOARD})")
 
 # Diagnostic build: score a handful of monitor addresses and blink the result.
 # Off by default -- a board left in a machine should be a ROM and nothing else.

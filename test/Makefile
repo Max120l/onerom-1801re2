@@ -5,7 +5,7 @@ CFLAGS ?= -std=c11 -O1 -g -Wall -Wextra -Wshadow -I../firmware
 BUILD  := build
 
 $(BUILD)/test_decode: test_decode.c ../firmware/decode.c ../firmware/decode.h \
-                      ../firmware/board_fire24e.h ../firmware/rom_images.h
+                      ../firmware/board.h ../firmware/board_fire24e.h ../firmware/board_fire24f.h ../firmware/rom_images.h
 	@mkdir -p $(BUILD)
 	$(CC) $(CFLAGS) -o $@ test_decode.c ../firmware/decode.c
 

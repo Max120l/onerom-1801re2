@@ -29,7 +29,8 @@ runs code you wrote. This asks anything you like, and it runs on a machine far
 too broken to boot — but the machine no longer does its normal job while it
 runs.
 
-Both report through the same one-bit channel: the board's status LED.
+Both report through the same one-bit channel: the board's status light — a
+plain LED on rev E, an RGB pixel on rev F, read identically either way.
 
 ## Reading the LED
 
@@ -69,11 +70,41 @@ used for the real ones.
 Frames are slow — twenty pulses is roughly twenty seconds — which matters when
 choosing between the latching and clearing modes below.
 
+### The status light
+
+Rev E has a plain LED. Rev F has a WS2812B RGB pixel on the same GPIO, and this
+firmware uses it — but deliberately **not** as a second data channel.
+
+Everything above is read as long pulse versus short pulse, and stays that way on
+both boards: one set of reading instructions, one set of tables, whichever board
+you have. If colour carried data, every table here would need two columns and a
+board that got flashed for the wrong revision would silently mean something
+else. So colour says what *kind* of thing you are looking at; the pulse still
+says what it is.
+
+Where it does earn its place:
+
+| | |
+|---|---|
+| **the frame marker** | coloured by which instrument is running — blue for watchpoints, cyan for a test ROM's beacons, magenta for an address, white for plane 0's bits. Eleven build variants report through one light, and a sixteen-pulse address frame and a sixteen-pulse anything-else frame are otherwise indistinguishable from across a bench. The marker carries no data, so spending it on identity cannot corrupt a reading. |
+| **verdict modes** | `MPI_BEACON_LIVE` and `MPI_SOAK_DIGIT` are genuinely pass/fail, so there red means the last pass failed and green means it was clean. On rev E the lamp has to say "steady means bad, dark means good", which reads backwards to everyone who meets it and only exists because darkness is all a plain LED has left. |
+| **amber** | nothing has completed a pass in fifteen seconds — the PP hung or the bus gone. On rev E this is a fast flicker you have to tell apart from a steady light by timing it. |
+| **the plain build** | green while answering, amber while answering but dropping replies, faint red while powered with nothing asking, and a blue blip at power-on. Rev E has to spend darkness on "nothing is asking", which makes a silent machine and a dead board look identical — exactly the ambiguity you are standing there with. |
+
+Colours are kept dim on purpose; these pixels are floodlights at full scale and
+a frame is something you watch for half a minute. All of them are in one table
+at the top of `firmware/status.h`. If they come out permuted, the pixel is one
+of the clone parts that wants RGB rather than GRB order, and `STATUS_GRB` is the
+only thing to change.
+
 ## The build matrix
 
 All options are `cmake -S firmware -B <dir> -G Ninja -D<OPTION>=ON`. Implications
 are applied by CMake before anything is defined, so turning on a dependent option
 turns on what it needs; the build prints which.
+
+Add `-DONEROM_BOARD=FIRE24F` on a rev F board — every variant below works on
+both revisions, and nothing about how a frame is read changes between them.
 
 | Option | |
 |---|---|
@@ -433,6 +464,8 @@ diagnosed rather than merely failed. See
 |---|---|
 | `firmware/diag.c` | the whole instrument: scoring, beacons, and every LED frame |
 | `firmware/diag.h` | what the emulator calls — empty inlines when `MPI_WATCH` is off |
+| `firmware/status.h` | the palette, and the one-bit interface every frame uses |
+| `firmware/status.c` | the rev F pixel driver; empty on rev E |
 | `firmware/watch.h` | the watchpoint and beacon tables; the table is the interface |
 | `tools/diag/make_*.py` | the test ROMs |
 | `tools/diag/selftest.py`, `check_selftest.py` | the board's own wiring self-test |

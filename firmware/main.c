@@ -26,11 +26,12 @@
 #include "pico/multicore.h"
 #include "hardware/pio.h"
 
-#include "board_fire24e.h"
+#include "board.h"
 #include "decode.h"
 #include "mpi_rom.pio.h"
 #include "diag.h"
 #include "rom_images.h"
+#include "status.h"
 
 // The machine waits for our reply, so being slow costs wait states rather than
 // data -- but only up to the point where the read strobe has come and gone
@@ -280,8 +281,17 @@ int main(void) {
     start_pio();
     diag_init(&g_dec, g_dirs_ad);
 
-    gpio_init(GPIO_STATUS_LED);
-    gpio_set_dir(GPIO_STATUS_LED, GPIO_OUT);
+    status_init();
+#if BOARD_HAS_NEOPIXEL
+    // A blue blip before core 1 starts: proof the firmware itself came up, on a
+    // board where every later colour depends on bus traffic that may never
+    // arrive.  Rev E cannot afford the equivalent -- a lone flash there is
+    // indistinguishable from the serving light -- so this is rev F only.
+    status_style(STATUS_BOOT);
+    status_set(true);
+    sleep_ms(120);
+    status_set(false);
+#endif
 
     multicore_launch_core1(serve_forever);
 
@@ -295,6 +305,12 @@ int main(void) {
     //   dark          nothing is reaching us -- no address strobe, or no power
     //   fast flicker  serving normally
     //   slow blink    a handful of cycles then nothing, i.e. the machine gave up
+    //
+    // Rev F has a third dimension to say it in, and spends it on the one state
+    // the plain LED cannot report honestly.  "Nothing is asking" and "this
+    // board is dead" are both dark on rev E, which is exactly the ambiguity you
+    // are standing there with when a machine comes up silent -- so on rev F
+    // idle gets a colour of its own and darkness means only one thing.
     uint32_t last_served = 0, last_missed = 0;
     bool phase = false;
     while (true) {
@@ -303,11 +319,22 @@ int main(void) {
         bool missing = missed != last_missed;
         phase = !phase;
 
+#if BOARD_HAS_NEOPIXEL
+        // Steady, always lit; the colour is the whole message.  Dropping
+        // replies gets amber rather than a blink, which also means it no
+        // longer has to be told apart from serving by timing a light.
+        (void)phase;
+        status_style(!active   ? STATUS_IDLE
+                     : missing ? STATUS_DROPPING
+                               : STATUS_SERVING);
+        status_set(true);
+#else
         // Lit means answering. Blinking means answering but dropping some,
         // which is the interesting failure: replies assembled too late to be
         // taken. Dark means nothing is asking.
         bool on = active && (!missing || phase);
-        gpio_put(GPIO_STATUS_LED, on ? STATUS_LED_ON : STATUS_LED_OFF);
+        status_set(on);
+#endif
 
         last_served = served;
         last_missed = missed;

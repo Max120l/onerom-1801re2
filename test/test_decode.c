@@ -1,7 +1,7 @@
 // Host test for the address decode and data preparation path.
 //
 // This walks the same arithmetic the firmware runs per bus cycle, using the
-// real pin map out of board_fire24e.h, and checks it against an independently
+// real pin map out of board.h, and checks it against an independently
 // written model of the bus. It is the test that would have caught the chip
 // code / address bit complement bug.
 //
@@ -14,7 +14,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "board_fire24e.h"
+#include "board.h"
 #include "decode.h"
 
 static const uint8_t ad_gpio[16] = AD_GPIO;

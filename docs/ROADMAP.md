@@ -75,7 +75,11 @@ Two things to design around:
   something has to choose. The two X jumper pads are already on the board and
   currently must never be driven — `build_pin_masks()` asserts exactly that —
   which makes them free as a two-bit image selector. Four images, no new
-  hardware, no host software.
+  hardware, no host software. Note that the *main* jumper block cannot do this
+  job: only two of its four columns are readable at all, and one of those is the
+  recovery jumper. [BOARD-NOTES.md](BOARD-NOTES.md) has the measurement, and an
+  active detection scheme for the X pads that does not depend on internal
+  pulls.
 - **USB power while the board is in a live machine.** The board takes its power
   from the socket. Plugging a host in while the machine is running means two
   supplies on one rail, and that needs a deliberate answer — a diode, a jumper,

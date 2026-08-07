@@ -15,10 +15,11 @@
 #include "pico/multicore.h"
 #include "hardware/pio.h"
 
-#include "board_fire24e.h"
+#include "board.h"
 #include "decode.h"
 #include "diag.h"
 #include "rom_images.h"
+#include "status.h"
 #include "watch.h"
 
 // The CMake options resolve these, but a hand-rolled -D would not, and the
@@ -32,6 +33,27 @@
 #endif
 
 #if MPI_WATCH
+
+// What colour the frame marker is, on a board that has colours.
+//
+// Eleven build variants report through one light, and on rev E there is no way
+// to tell from the board which of them is flashed -- a frame of sixteen pulses
+// is the address instrument or the plane-0-bits instrument depending on a
+// decision made at the keyboard some time ago.  Reading the wrong table over
+// the right frame is a mistake this project has actually made.
+//
+// The marker carries no data, so spending it on identity costs nothing and
+// cannot corrupt a reading.  Exactly one display loop is compiled into any
+// build, so one constant covers the whole file.
+#if MPI_SOAK_P0BITS
+#define FRAME_MARK_COLOUR   STATUS_MARK_BITS
+#elif MPI_BEACON_KILLADDR || MPI_BEACON_LASTADDR
+#define FRAME_MARK_COLOUR   STATUS_MARK_ADDR
+#elif MPI_BEACONS
+#define FRAME_MARK_COLOUR   STATUS_MARK_BEACON
+#else
+#define FRAME_MARK_COLOUR   STATUS_MARK_WATCH
+#endif
 
 // Borrowed from the emulator at init: the decode tables, for the coverage
 // counts, and the AD-line mask, so a readback is compared only against pins we
@@ -304,9 +326,14 @@ static inline void __not_in_flash_func(watch_note)(uint32_t addr) {
 // exceeds 700 ms, so two and a half seconds of solid LED is the one event in a
 // frame that cannot be mistaken for anything else in it.
 static void __not_in_flash_func(frame_marker)(void) {
-    gpio_put(GPIO_STATUS_LED, STATUS_LED_ON);
+    // On rev F the marker is also where the frame says which instrument it
+    // came from -- see FRAME_MARK_COLOUR.  The pulse is identical either way;
+    // colour never carries data, only identity.
+    status_style(FRAME_MARK_COLOUR);
+    status_set(true);
     sleep_ms(2500);
-    gpio_put(GPIO_STATUS_LED, STATUS_LED_OFF);
+    status_set(false);
+    status_style(STATUS_DATA);
     sleep_ms(800);
 }
 
@@ -322,10 +349,10 @@ static void __not_in_flash_func(frame_marker)(void) {
 // a long number. "Group four, pulse two" needs no running count and survives
 // looking away.
 static void __not_in_flash_func(frame_pulse)(bool lit, unsigned index) {
-    gpio_put(GPIO_STATUS_LED, STATUS_LED_ON);
+    status_set(true);
     // 7:1 -- long enough to be unmistakable without making a frame interminable.
     sleep_ms(lit ? 700 : 100);
-    gpio_put(GPIO_STATUS_LED, STATUS_LED_OFF);
+    status_set(false);
     sleep_ms(((index + 1) % 5 == 0) ? 900 : 300);
 }
 
@@ -421,15 +448,18 @@ void diag_display(void) {
             }
 
             if (stale_ms >= 15000) {
-                gpio_put(GPIO_STATUS_LED,
-                         (tick / 4) & 1 ? STATUS_LED_ON : STATUS_LED_OFF);
+                status_style(STATUS_STUCK);
+                status_set((tick / 4) & 1);
                 sleep_ms(25);
                 continue;
             }
+            // The digit is still the answer; on rev F its colour repeats it,
+            // so a miscounted flash cannot turn "clean" into "both failed".
+            status_style(code == 1 ? STATUS_GOOD : STATUS_BAD);
             for (unsigned i = 0; i < code; i++) {
-                gpio_put(GPIO_STATUS_LED, STATUS_LED_ON);
+                status_set(true);
                 sleep_ms(250);
-                gpio_put(GPIO_STATUS_LED, STATUS_LED_OFF);
+                status_set(false);
                 sleep_ms(350);
             }
             sleep_ms(2500);         // long enough that the count cannot run on
@@ -481,7 +511,8 @@ void diag_display(void) {
                 if (!faulty) {
                     // A clean pass still has to look like something, or "all
                     // well" and "board dead" are the same dark LED.
-                    gpio_put(GPIO_STATUS_LED, STATUS_LED_ON);
+                    status_style(STATUS_GOOD);
+                    status_set(true);
                     sleep_ms(60);
                 }
             } else if (stale_ms < 60000) {
@@ -496,10 +527,19 @@ void diag_display(void) {
                 // clamped so it cannot overflow, and a clamped counter makes the
                 // flicker stop dead -- leaving a hung machine showing a steady
                 // LED, which is one of the two readings it must not look like.
-                gpio_put(GPIO_STATUS_LED,
-                         (tick / 4) & 1 ? STATUS_LED_ON : STATUS_LED_OFF);
+                status_style(STATUS_STUCK);
+                status_set((tick / 4) & 1);
             } else {
-                gpio_put(GPIO_STATUS_LED, faulty ? STATUS_LED_ON : STATUS_LED_OFF);
+                // Rev E: steady means the last pass failed, dark means it was
+                // clean -- a convention that reads backwards to everyone who
+                // meets it, and has to, because darkness is all a plain LED has
+                // left.  Rev F just says red or green and needs no convention.
+#if BOARD_HAS_NEOPIXEL
+                status_style(faulty ? STATUS_BAD : STATUS_GOOD);
+                status_set(true);
+#else
+                status_set(faulty);
+#endif
             }
             sleep_ms(25);
         }

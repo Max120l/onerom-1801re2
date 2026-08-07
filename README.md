@@ -1,4 +1,4 @@
-# Emulating a 1801RE2 on a One ROM Fire 24 rev E
+# Emulating a 1801RE2 on a One ROM Fire 24
 
 Firmware that makes an RP2350-based One ROM board behave like a Soviet 1801RE2
 mask ROM — a chip that sits on the MPI bus, the domestic equivalent of DEC's
@@ -8,7 +8,9 @@ Target machine: **Elektronika MS 0511 (UKNC)**, which uses four of them.
 
 **Status: working. An Elektronika MS 0511 boots with all four of its 1801RE2
 mask ROMs replaced by a single One ROM Fire 24 in the DS4 socket.**
-The image conversion tooling is finished and tested. Read [Before you plug anything in](#before-you-plug-anything-in)
+The image conversion tooling is finished and tested. Board revisions **E and F**
+are both supported — see [Which board revision](#which-board-revision); rev E is
+the one it was proven on, and the default. Read [Before you plug anything in](#before-you-plug-anything-in)
 first, and [Prior art](#prior-art) before deciding this is the right project at
 all — someone has already built a purpose-made board for this job.
 
@@ -25,6 +27,7 @@ This README is the ROM emulator. The rest is next door:
 | [docs/INVESTIGATION.md](docs/INVESTIGATION.md) | what they found in one MS 0511, including the wrong turns |
 | [docs/D22-KR1801VP1-055.md](docs/D22-KR1801VP1-055.md) | the chip that turned out to be faulty, and how to replace it |
 | [docs/DIAGNOSTICS-AS-A-ROM.md](docs/DIAGNOSTICS-AS-A-ROM.md) | the idea generalised to other machines |
+| [docs/BOARD-NOTES.md](docs/BOARD-NOTES.md) | the carrier board itself: revisions, jumpers, the status light, recovery |
 | [docs/ROADMAP.md](docs/ROADMAP.md) | what is next, and the question gating each step |
 
 ## Why this is not a One ROM configuration
@@ -327,7 +330,10 @@ the diagnostics deleted.
 | `firmware/mpi_rom.pio` | the two state machines |
 | `firmware/main.c` | hardware setup and the core 1 serving loop |
 | `firmware/decode.c` | the per-cycle arithmetic, free of SDK dependencies |
-| `firmware/board_fire24e.h` | socket-to-GPIO map and chip pinout |
+| `firmware/board.h` | socket-to-GPIO map and chip pinout, shared by both revisions |
+| `firmware/board_fire24e.h`, `_f.h` | what the revision changes: indicator and jumpers |
+| `firmware/status.h`, `status.c` | the status light, plain LED or RGB pixel |
+| `firmware/ws2812.pio` | the rev F pixel's 800 kHz protocol |
 | `firmware/rom_images.h` | image table interface |
 | `test/test_decode.c` | host test of that arithmetic |
 | `tools/rom/re2_convert.py` | dump format conversion, tested |
@@ -481,6 +487,32 @@ Flash `build/mpi_rom.bin` with [One ROM Web](https://onerom.org/web) or the CLI'
 `onerom-rp235x.bin`, loaded at 0x10000000. A `.uf2` is produced too, but the
 board has no BOOTSEL button, so the USB route is the practical one.
 
+### Which board revision
+
+Rev E and rev F are both supported, and rev E is the default because it is the
+board this firmware was developed and proven on. For rev F:
+
+```console
+$ cmake -B build -G Ninja -DONEROM_BOARD=FIRE24F .
+```
+
+The two boards' socket-to-GPIO maps are **identical in every signal pin**, so
+nothing on the serving path changes and the choice cannot affect how the machine
+is served. What moves is the furniture:
+
+| | rev E | rev F |
+|---|---|---|
+| status indicator | plain LED on GPIO 29 | WS2812B RGB pixel on GPIO 29 |
+| jumper A (recovery) | GPIO 25 | GPIO 26 |
+| jumper B | GPIO 24 | GPIO 27 |
+| jumpers C, D (= SWD pads) | GPIO 26, 27 | GPIO 25, 24 |
+
+Getting it wrong is not destructive, but it is silent until you are standing at
+the machine: a rev E build leaves a rev F pixel dark, and a rev F build
+bit-bangs an 800 kHz waveform at a rev E LED. The build prints which board it
+is configured for; `docs/BOARD-NOTES.md` has the rest, including why only two of
+the four jumper columns are readable at all.
+
 ### Getting back
 
 One ROM's USB is a TinyUSB device stack presenting its own vendor interface on
@@ -498,7 +530,7 @@ project at all. Two routes do work:
   running firmware and the bare bootrom.
 - **The bootrom's mass-storage volume**, which takes a `.uf2` by drag and drop.
 
-For the second, header **J2** on the Fire 24 rev E carries everything needed:
+For the second, header **J2** carries everything needed, on both revisions:
 
 | J2 pin | | J2 pin | |
 |---|---|---|---|
@@ -520,18 +552,25 @@ $ openocd -f interface/cmsis-dap.cfg -f target/rp2350.cfg       -c "adapter spee
 ```
 
 SWCLK and SWDIO are J2 pins 6 and 8, ground on 2 or 4. Those pins double as
-image-select jumpers C and D, so leave those jumpers off while programming.
+jumper columns C and D, so leave those jumpers off while programming.
 
 That route needs no working firmware at all, which makes it the real safety net:
 a corrupt image sends the bootrom to USB by itself.
 
-On top of that, **image-select jumper 0 doubles as a recovery jumper**, so you do
-not have to go looking for the BOOT pad. Fit it and power on:
-before a single socket pin is touched, the board hands straight back to the
-bootrom's USB mode. It is checked first thing in `main()` so that it still works
-when the rest of this firmware does not — though note it does depend on this
-firmware booting at all, which is why BOOT-to-GND remains the fallback beneath
-it.
+On top of that, **jumper A doubles as a recovery jumper**, so you do not have to
+go looking for the BOOT pad. Fit it and power on: before a single socket pin is
+touched, the board hands straight back to the bootrom's USB mode. It is checked
+first thing in `main()` so that it still works when the rest of this firmware
+does not — though note it does depend on this firmware booting at all, which is
+why BOOT-to-GND remains the fallback beneath it.
+
+Jumper A is **GPIO 25 on rev E and GPIO 26 on rev F** — the same silkscreen
+letter, a different pin — which the board headers handle, and which is one more
+reason to build for the revision in your hand. It is the only jumper this
+firmware reads, and that is not a design preference: columns C and D are each
+hard-wired to an SWD pad whose own internal pull fights any pull the firmware
+applies, so they cannot be read at all. `docs/BOARD-NOTES.md` has the
+measurement.
 
 The check does not assume which rail the jumper ties to. A floating pin follows
 whichever internal pull is applied and a driven one does not, so comparing a
