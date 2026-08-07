@@ -2,26 +2,23 @@
 
 Three things, in order, each with the question that decides how it gets built.
 
-## 1. A replacement for D22
+## 1. A replacement for D22 — moved to its own repository
 
-The thermal fault is traced to D22, a КР1801ВП1-055 bus transceiver
-([details](D22-KR1801VP1-055.md)). It is a gate array and cannot be bought, but
-its function is ordinary and a substitute from catalogue parts is a weekend's
-work — two 74x640s and three sections of a '244.
+**Answered, and now lives at
+[Max120l/kr1801vp1-055](https://github.com/Max120l/kr1801vp1-055).**
 
-**The question to answer first: is the enable logic combinational, or does it
-have state?**
+The question that gated it was whether the enable logic is combinational or
+stateful. Traced against the k1801 cell library, every cell in the
+`370`/`373`/`428`/`429` block is a gate or an inverter — no latch, no clock, no
+feedback — so it is **combinational** and no CPLD is needed. Two 74x**245**s and
+three buffer sections reproduce the part exactly, proven by equivalence check
+against a structural model of the die.
 
-The diagram's control block is a network of cells labelled `373`, `428`, `429`
-and `370` driven from pin 20 (direction) and pin 41 (/OE). **Those numbers are
-the gate array's internal cell library, not 74-series part numbers** — `373`
-here is not an octal latch unless the connectivity says so. Trace it.
+Note the part number: **'245, not '640**. The chip does not invert, which is the
+opposite of what this roadmap and `D22-KR1801VP1-055.md` used to say.
 
-- purely combinational from pins 20 and 41 → two '640s drop straight in
-- anything stateful → a 5 V CPLD, an ATF1504AS or similar, which is one chip
-  rather than several and can reproduce the control exactly
-
-Two things before the iron comes out:
+Two things still to do before the iron comes out, and they belong here because
+they are about this machine rather than about the chip:
 
 - **Confirm the low-byte prediction.** V0–V7 has three gate delays against one
   for W0–W7, so the low byte of the AD bus should fail first. `make_regtest`
