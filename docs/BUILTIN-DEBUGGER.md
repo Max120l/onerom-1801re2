@@ -101,6 +101,35 @@ Note the converse limitation: this debugger reaches the **CPU's** world only.
 The PP's own RAM — plane 0, the video tag list, the beacon area our test ROMs
 use — is not addressable from here.
 
+## The screen, and why the debugger cannot draw on most of it
+
+The display is a tag list in plane 0 starting at 000270: one entry per scan
+line, each saying where that line's pixels live. Reading the list out of a
+running machine (via ukncbtl's Display List viewer — the tags are in plane 0,
+which this debugger cannot see) gives the monitor's screen layout:
+
+| lines | pixel addresses (plane bytes) | what |
+|---|---|---|
+| 0–16 and all blank fillers | **000000** | one shared blank buffer |
+| 19–29 | 175700–176450 | the status row (РУС/ЛАТ indicator etc.) |
+| 31–294 | **100000–151060**, stride 0120 | the main screen, 80 bytes per line |
+| 296–306 | 176570–177410 | bottom service rows |
+
+CPU user space reaches plane bytes 0–67777 only (CPU address = 2 × plane byte).
+So the main screen and the service rows are **deliberately outside user-mode
+reach** — runaway user code cannot scribble on the console display. Software
+that wants CPU-drawn graphics builds its own tag list pointing into
+CPU-reachable plane bytes; the tags decide whose memory the screen is.
+
+One consequence is delightful: the shared blank-line buffer at plane byte 0 is
+CPU address 000000, vector RAM. Deposit `177777` at addresses 0–6 and a bright
+32-pixel bar appears at the top-left of every blank line — the one place in the
+whole display a user-space debugger is allowed to draw. (Restore the zeros
+after, or reset; it is vector space.) An accidental deposit at address 0 during
+the decoding session was visible on screen the whole time, three dim pixels
+tall enough that nobody noticed — the dash we spent an evening hunting, already
+drawn.
+
 ## ROM geography, for whoever digs next
 
 For the stock ROM set (reference image, 32256 bytes): main command loop and
