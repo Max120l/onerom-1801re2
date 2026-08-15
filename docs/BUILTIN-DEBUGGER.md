@@ -116,19 +116,27 @@ which this debugger cannot see) gives the monitor's screen layout:
 | 296–306 | 176570–177410 | bottom service rows |
 
 CPU user space reaches plane bytes 0–67777 only (CPU address = 2 × plane byte).
-So the main screen and the service rows are **deliberately outside user-mode
-reach** — runaway user code cannot scribble on the console display. Software
-that wants CPU-drawn graphics builds its own tag list pointing into
-CPU-reachable plane bytes; the tags decide whose memory the screen is.
+Every visible line therefore lies **outside user-mode reach** — and the one
+tag target that IS reachable, the shared buffer at plane byte 0, belongs to
+lines 0–18, which the video path never renders at all: they are the vertical
+blanking interval (`if (yy < 19) continue;` in ukncbtl's render loop, matching
+hardware).
 
-One consequence is delightful: the shared blank-line buffer at plane byte 0 is
-CPU address 000000, vector RAM. Deposit `177777` at addresses 0–6 and a bright
-32-pixel bar appears at the top-left of every blank line — the one place in the
-whole display a user-space debugger is allowed to draw. (Restore the zeros
-after, or reset; it is vector space.) An accidental deposit at address 0 during
-the decoding session was visible on screen the whole time, three dim pixels
-tall enough that nobody noticed — the dash we spent an evening hunting, already
-drawn.
+So the verdict, proven from both ends: **drawing on the console's screen from
+this debugger is impossible by construction.** Not hidden by overscan, not
+mapped to a black palette — unreachable. The console armors its entire visible
+display against user-mode writes, and the only writable buffer is in the
+blanking interval. Software that wants CPU-drawn graphics builds its own tag
+list pointing into CPU-reachable plane bytes — the tags decide whose memory
+the screen is — and the tag list itself lives in plane 0, which belongs to
+the PP. Drawing is a cooperation between both processors, by design.
+
+(An earlier revision of this section claimed a deposit at addresses 0–6 would
+show as a bar on the blank top lines. It does not — those lines are never
+drawn — and the claim is kept here, corrected, as a record of how it failed:
+the deposit was verified in memory, on hardware and in the emulator, and the
+pixels were looked for and absent in both before the render source explained
+why.)
 
 ## ROM geography, for whoever digs next
 
