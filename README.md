@@ -28,6 +28,7 @@ This README is the ROM emulator. The rest is next door:
 | [docs/D22-KR1801VP1-055.md](docs/D22-KR1801VP1-055.md) | the chip that turned out to be faulty, and how to replace it |
 | [docs/DIAGNOSTICS-AS-A-ROM.md](docs/DIAGNOSTICS-AS-A-ROM.md) | the idea generalised to other machines |
 | [docs/BOARD-NOTES.md](docs/BOARD-NOTES.md) | the carrier board itself: revisions, jumpers, the status light, recovery |
+| [docs/BUILTIN-DEBUGGER.md](docs/BUILTIN-DEBUGGER.md) | boot menu item 6 decoded: the machine's own console debugger |
 | [docs/ROADMAP.md](docs/ROADMAP.md) | what is next, and the question gating each step |
 
 ## Why this is not a One ROM configuration
