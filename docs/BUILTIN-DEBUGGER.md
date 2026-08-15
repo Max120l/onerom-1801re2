@@ -138,6 +138,20 @@ the deposit was verified in memory, on hardware and in the emulator, and the
 pixels were looked for and absent in both before the render source explained
 why.)
 
+Two traps for anyone re-verifying this in ukncbtl, both walked into here:
+
+- The memory window opens on **ROM** view, not CPU — cycle spaces with the
+  Space key, or use the console's `p` (switch processor) and `m <addr>`. A
+  deposit that "did not land" was in CPU memory all along, in a pane that was
+  not being displayed.
+- The console keeps its **session transcript as ASCII text in plane-0 RAM
+  around 002000–002270**, directly below the tag list. Watching that region
+  while typing shows your own keystrokes and the monitor's replies streaming
+  into memory — which looks exactly like deposits going astray and is nothing
+  of the kind. It also provides a live proof of the space split: the debugger
+  session shows `002274/ 000000` while plane 0 at the same numeric address
+  holds a tag pointer — same address, two memories.
+
 ## ROM geography, for whoever digs next
 
 For the stock ROM set (reference image, 32256 bytes): main command loop and
