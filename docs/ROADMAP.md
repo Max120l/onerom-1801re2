@@ -1,6 +1,6 @@
 # Roadmap
 
-Three things, in order, each with the question that decides how it gets built.
+Each step with the question that decides how it gets built.
 
 ## 1. A replacement for D22 — moved to its own repository
 
@@ -87,3 +87,42 @@ This is also the step that makes the USB reporting in
 [DIAGNOSTICS-AS-A-ROM.md](DIAGNOSTICS-AS-A-ROM.md) practically free: once the
 USB stack is there for file transfer, a serial port for diagnostics costs
 almost nothing extra, and the LED frames can go back to being a fallback.
+
+## 4. An expansion-slot device — the MPI PicoMem
+
+A second, fully working MS 0511 changes the constraint that shaped everything
+above: there is now a machine that should never be opened. The cartridge slot
+is the answer — it carries the same PP-side MPI bus this project already
+speaks, and it is reachable from outside the case.
+
+The idea: an RP2350 card in the cartridge slot. In order, each phase shippable
+on its own:
+
+1. **ROM in the slot.** What the ROM-socket firmware already does, moved to a
+   proper edge connector, booted from menu item 2. Proves the pinout, the
+   mechanicals, and the slot's select/strobe behaviour with zero new bus
+   machinery.
+2. **Floppy emulation.** The standard controller is four words at 177130, and
+   ukncbtl's `emubase/Floppy.cpp` is a register-level model of it — the
+   contract to satisfy, and the test bench to develop against. Satisfy it and
+   menu item 1 boots stock OS from SD-card images with unmodified drivers.
+3. **Hard drive.** Same method against `emubase/Hard.cpp`.
+4. **Banked RAM.** The memory map is fixed, so "more RAM" honestly means
+   serving the six switchable 8K banks behind port 177054 — a RAM-disk more
+   than system memory. Legal on the bus (the slave paces via RPLY); utility
+   real; timing unverified until phase 2 teaches us slot writes.
+
+**The question to answer first: the cartridge slot pinout.** The MS 0511
+schematic (the four-sheet PDF already in this project's hands — only sheet 1
+has been read, for the ROM sockets) almost certainly draws it. Second
+question, likely answered by the first: which strobes the slot carries — the
+real floppy controller module lives on this connector and has writable
+registers, which is strong evidence the slot sees full read AND write cycles,
+but the drawing settles it.
+
+This step supersedes step 2 (a real slot card obsoletes the DS4 bodge-wire
+cartridge hack) and absorbs step 3 (USB/SD image loading is part of the
+design rather than an afterthought). It also opens a door none of the above
+could: with two machines, the network boot path in the ROM (menu item 3,
+whose entire message set this project has already extracted) could someday
+let the healthy machine serve the patient.
