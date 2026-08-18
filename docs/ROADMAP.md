@@ -112,13 +112,25 @@ on its own:
    than system memory. Legal on the bus (the slave paces via RPLY); utility
    real; timing unverified until phase 2 teaches us slot writes.
 
-**The question to answer first: the cartridge slot pinout.** The MS 0511
-schematic (the four-sheet PDF already in this project's hands — only sheet 1
-has been read, for the ROM sockets) almost certainly draws it. Second
-question, likely answered by the first: which strobes the slot carries — the
-real floppy controller module lives on this connector and has writable
-registers, which is strong evidence the slot sees full read AND write cycles,
-but the drawing settles it.
+**Prior art, found and studied:**
+[y-salnikov/uknc_sd_fdd](https://github.com/y-salnikov/uknc_sd_fdd) — an
+SD-card floppy emulator for the UKNC that already exists. A PSoC 4 (Cortex-M0
+plus UDB programmable logic doing the bus timing — their PIO) on a cartridge
+PCB, serving a boot ROM through the cartridge window and reading/writing SD
+disk images through a polled command protocol; boots via menu item 2, with an
+RT-11 disk-change utility on the PDP-11 side. What it proves: a slot device
+with writes works, and no interrupts or DMA are needed for a useful disk.
+What it leaves open — the niche for this project: register-level
+compatibility (the 177130 floppy and 110000 hard-drive contracts, i.e. menu
+item 1 and unmodified OS drivers), more images, USB, and the diagnostic
+instruments this project already carries. Its Hardware/ directory settled the
+cartridge mechanicals (62.5 × 49 mm, 48 edge pads at 2.5 mm — recorded in
+EXPANSION-CONNECTORS.md). No licence file, so study it, do not copy it.
+
+**The pinout question is answered** — see
+[EXPANSION-CONNECTORS.md](EXPANSION-CONNECTORS.md): the slots carry full PP
+МПИ including the write strobe (verified three ways: the redrawn schematic,
+the finger count on the machine, and uknc_sd_fdd's netlist).
 
 This step supersedes step 2 (a real slot card obsoletes the DS4 bodge-wire
 cartridge hack) and absorbs step 3 (USB/SD image loading is part of the

@@ -154,7 +154,14 @@ with nothing answering.
 - The floppy-at-XP1 claim is now plausibly a property of the earlier
   revision (see above); on this machine the PP-side slot is the natural and
   modelled home.
-- The physical cartridge envelope is NOT yet specified for this revision:
-  the slot takes a board about 65 mm wide (measured), and the rest — bay
-  depth, height clearance, contact pitch, keying — needs calipers at the
-  machine before any PCB is drawn.
+- The physical cartridge envelope IS now specified, via prior art:
+  y-salnikov's uknc_sd_fdd cartridge (EAGLE sources in its Hardware/
+  directory) is **62.5 × 49.0 mm** with an edge package named
+  `SNP15-48-BOARD` — 48 pads A1–A24/B1–B24 at **2.5 mm pitch**, pad
+  1.5 × 4.04 mm, the field spanning 57.5 mm — matching the ~65 mm slot
+  measurement and the СНП15-48 in the machine's BOM. Its board netlist also
+  independently confirms this file's slot pinout on every pin the design
+  uses, including **WR on B8** — writes through the slot, proven in a
+  working product. (The project carries no licence file, so its sources and
+  PCB are all-rights-reserved by default: dimensions and pinout are facts
+  and recorded here, the design files are not to be copied without asking.)
