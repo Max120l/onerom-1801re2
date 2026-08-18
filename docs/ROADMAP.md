@@ -132,6 +132,38 @@ EXPANSION-CONNECTORS.md). No licence file, so study it, do not copy it.
 МПИ including the write strobe (verified three ways: the redrawn schematic,
 the finger count on the machine, and uknc_sd_fdd's netlist).
 
+**Requirements as they stand:**
+
+Decided:
+- Image format: **ukncbtl's**, verbatim. The emulator is then format-identical
+  infrastructure — same file boots in ukncbtl and on the card, `Floppy.cpp`
+  is both the register contract and the reference image reader, and every
+  image in the community works on day one.
+- Register-level compatibility is the goal (menu item 1, unmodified OS
+  drivers) — the niche uknc_sd_fdd leaves open.
+- MCU: **RP2350B** — the bus needs ~28 GPIOs (AD0–15, СИА, ВВОД, ВЫВОД, СИП,
+  БАЙТ, ВУ, СЕ0[–3], INIT, IDX) plus SD and status; the A-variant's 30 don't
+  clear that with margin.
+- Development order: floppy state machine against ukncbtl first, hardware
+  second; first silicon debuts in the machine with the D22 fault, never the
+  good one.
+
+Known (from uknc_sd_fdd's board and the machine):
+- Card 62.5 × 49 mm, 48 edge pads at 2.5 mm pitch, keying notch at 41.25 mm
+  (the slot is keyed — orientation is enforced mechanically, confirmed on
+  the machine), four Ø2.8 mounting holes.
+- Electrical discipline carries over from the ROM-socket board: 5 V-tolerant
+  inputs, 8 mA push-pull drive, СИП open-drain via pin direction, 3.3 V LDO.
+
+Still open (asked of the uknc_sd_fdd author):
+- Board thickness and edge bevel; whether the СНП15-48 needed finger-length
+  tuning.
+- Bus behaviour notes: СИП release timing, СИА glitches, and whether ВУ (the
+  I/O-page select) behaves on the slot — the one signal register-level
+  emulation needs that no existing slot device has exercised.
+- Bay depth and height clearance: whether a microSD or USB-C can face
+  outward with the door closed.
+
 This step supersedes step 2 (a real slot card obsoletes the DS4 bodge-wire
 cartridge hack) and absorbs step 3 (USB/SD image loading is part of the
 design rather than an afterthought). It also opens a door none of the above
