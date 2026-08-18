@@ -38,11 +38,14 @@ the CPU-side connector was the only home for one; the later revision's
 full-МПИ slots make the PP-side controller possible, which is the
 configuration ukncbtl models. Recorded as a hypothesis.
 
-What the insert remains authoritative for on any revision: the cartridge's
-**mechanical envelope** — 120 × 100 mm board, 1.5 mm edge tongue, keying
-notch at 51.25 mm, component height 10 mm max, two Ø3.5 mounting holes.
-(Its 2×32 finger field belongs to the earlier revision, so the tongue's
-contact layout must be drawn from the real 2×24 slot, not from that page.)
+The insert's cartridge mechanicals (120 × 100 mm board, 83 mm tongue) belong
+to the earlier revision as well — **measured against the real machine, the
+2×24 slot accommodates a PCB only about 65 mm wide**, which is consistent
+with 24 contact positions per row. So the insert is historical context only;
+every dimension of a cartridge for this revision — tongue width and
+thickness, contact pitch and offsets, bay depth, height clearance, keying —
+must be measured from the machine and its slot. Nothing in either document
+substitutes for calipers here.
 
 ## The cartridge slots: full МПИ, 48 pins
 
@@ -151,6 +154,7 @@ with nothing answering.
 - The floppy-at-XP1 claim is now plausibly a property of the earlier
   revision (see above); on this machine the PP-side slot is the natural and
   modelled home.
-- The physical cartridge envelope is now fully specified (120×100 mm, tongue
-  and notch dimensions above) — enough to draw a mechanically correct
-  PicoMem card today.
+- The physical cartridge envelope is NOT yet specified for this revision:
+  the slot takes a board about 65 mm wide (measured), and the rest — bay
+  depth, height clearance, contact pitch, keying — needs calipers at the
+  machine before any PCB is drawn.
