@@ -112,7 +112,39 @@ on its own:
    than system memory. Legal on the bus (the slave paces via RPLY); utility
    real; timing unverified until phase 2 teaches us slot writes.
 
-**Prior art, found and studied:**
+**Prior art, found and studied — and it reshapes this step:**
+
+[ZPilot/kakave](https://github.com/ZPilot/kakave) (GPL-3.0) is the one that
+matters: a pseudo-КМД controller that **works with the UKNC's built-in
+driver** — register-level emulation of the МЗ floppy contract, the exact
+niche this step was aimed at. STM32F401/411 Blackpill, the timing-critical
+bus loop in ARM assembly (~700 lines), raw-track emulation, four drives from
+800 KB DSK images (ukncbtl's format) on SD, OLED and buttons, KiCad sources,
+community-improved gerbers and a printed case. Community-credited to the
+Telegram group, with @nzeemin (ukncbtl's author) among the inspirations.
+
+Its current evolution is
+[yrust's UKNZ_Kakave_Mouse_RTC_IDE](https://oshwlab.com/yrust/uknz_kakave_mouse_rtc_ide)
+on OSHWLab — the same lineage extended with **IDE (hard drive), RTC and
+mouse**, reported GPL.
+
+**Consequence:** register-compatible disk emulation for this machine exists,
+is licensed for building, and is maintained by the community that invented
+it. The fastest route to floppy+HDD on these machines is to **fabricate the
+community's board, not design a new one.** What remains genuinely unserved,
+and what this project uniquely brings, is narrower and better:
+
+- **The diagnostic cartridge** ([DIAGNOSTICS-AS-A-ROM](DIAGNOSTICS-AS-A-ROM.md)):
+  nobody's slot device carries instruments. A cartridge that owns plane 0,
+  the tag list and the screen, runs the test suite, and reports over USB is
+  this project's own ground.
+- **USB mass-storage image loading** (drag a DSK onto a USB drive instead of
+  shuffling SD cards) — worth contributing to kakave's lineage as much as
+  building separately.
+- An RP2350 consolidation (ROM windows + disks + diagnostics on one card)
+  remains possible later, standing on kakave's GPL bus loop as reference.
+
+
 [y-salnikov/uknc_sd_fdd](https://github.com/y-salnikov/uknc_sd_fdd) — an
 SD-card floppy emulator for the UKNC that already exists. A PSoC 4 (Cortex-M0
 plus UDB programmable logic doing the bus timing — their PIO) on a cartridge
