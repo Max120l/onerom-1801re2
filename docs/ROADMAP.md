@@ -131,7 +131,16 @@ mouse**, reported GPL.
 **Consequence:** register-compatible disk emulation for this machine exists,
 is licensed for building, and is maintained by the community that invented
 it. The fastest route to floppy+HDD on these machines is to **fabricate the
-community's board, not design a new one.** What remains genuinely unserved,
+community's board, not design a new one.**
+
+**Done — September 2026.** The kakave V2.1 was fabricated locally from the
+community gerbers, assembled, and works on the real machine: the built-in
+driver boots stock OS images from SD, four drives, first try. Everything the
+build required that upstream doesn't document — the back-side values, the SIP
+orientation, the two-byte EPROM decode table, the sourceable SD-socket part
+number — is recorded in [KAKAVE-V21-BUILD.md](KAKAVE-V21-BUILD.md). Phase 2's
+"contract to satisfy" is therefore served in hardware; what this project still
+owes the slot is the diagnostic cartridge below. What remains genuinely unserved,
 and what this project uniquely brings, is narrower and better:
 
 - **The diagnostic cartridge** ([DIAGNOSTICS-AS-A-ROM](DIAGNOSTICS-AS-A-ROM.md)):
