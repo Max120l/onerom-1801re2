@@ -1,0 +1,382 @@
+	.TITLE	CANARY
+	.SBTTL	RAM retention canary for the UKNC (Elektronika MS 0511)
+;
+; Fills all memory RT-11 will grant with address-derived signatures,
+; then rescans forever.  Every decayed word is logged - address,
+; expected, actual, pass number, clock ticks - to file DK:CANARY.LOG,
+; which is created, fully pre-written and CLOSEd (made permanent)
+; before testing starts, then rewritten block-by-block in place.
+; Every write goes to the medium immediately, so the log survives a
+; machine freeze; a header-block heartbeat (pass count + uptime) is
+; rewritten every pass, so even an error-free run records its own
+; time of death.
+;
+; Runs under RT-11 (SJ) on the UKNC.  All programmed requests are
+; hand-coded EMTs per the RT-11 System Macro Library Manual
+; (AA-PD6LA-TC): .ENTER=375/2 .LOOKUP=375/1 .WRITW=375/11 .GTIM=375/21
+; .CLOSE=374/6 .PRINT=351 .EXIT=350 .TTYIN=340 .SETTOP=354
+;
+; Exit: any key.
+;
+JSW	=	44		; job status word
+SIGNAT	=	125252		; signature XOR constant
+NLGBLK	=	100		; log file size in blocks (64.)
+;
+	.ENABL	AMA		; absolute addressing: no PC-relative fixups
+	.ASECT
+	. = 1000
+;
+START:	MOV	#1000,SP	; conventional RT-11 stack, below program
+	MOV	#HELLO,R0	; banner
+	EMT	351		; .PRINT
+;
+; --- create the log file, pre-write every block, make it permanent ---
+;
+	MOV	#ENTA,R0	; .ENTER chan 0, DK:CANARY.LOG, 64. blocks
+	EMT	375
+	BCC	1$
+	JMP	ERRENT
+1$:
+	CLR	WRTBLK		; write all blocks once (zeros) so that
+	MOV	#HDRBUF,WRTBUF	;  .CLOSE keeps the full file length
+10$:	MOV	#EVWA,R0	; .WRITW chan 0
+	EMT	375
+	BCC	11$
+	JMP	ERRWRT
+11$:
+	INC	WRTBLK
+	CMP	WRTBLK,#NLGBLK
+	BLO	10$
+	MOV	#3000,R0	; .CLOSE chan 0 (code 6 in high byte)
+	EMT	374
+	BCC	12$
+	JMP	ERRCLO
+12$:
+	MOV	#LOOA,R0	; .LOOKUP chan 0 - file now permanent
+	EMT	375
+	BCC	13$
+	JMP	ERRLOO
+13$:
+;
+; --- claim all the memory RT-11 will give (USR work is done now) ---
+;
+	BIS	#100,@#JSW	; JSW bit 6: inhibit TT wait
+	MOV	#-2,R0		; .SETTOP to the maximum
+	EMT	354
+	BIC	#1,R0		; granted top, word aligned
+	ADD	#2,R0		; exclusive limit
+	MOV	R0,HILIM
+	MOV	#PGMEND,R0	; first word above program+buffers
+	ADD	#77,R0
+	BIC	#77,R0		; round up to a 64-byte boundary
+	MOV	R0,LOLIM
+;
+	MOV	LOLIM,R1	; patch limits into the message
+	MOV	#LIMB1,R2
+	JSR	PC,OCT6
+	MOV	HILIM,R1
+	MOV	#LIMB2,R2
+	JSR	PC,OCT6
+	MOV	#LIMMSG,R0	; "TESTING nnnnnn - nnnnnn"
+	EMT	351
+;
+; --- fill the region with signatures:  mem[a] = a XOR 125252 ---
+;
+	MOV	#SIGNAT,R5
+	MOV	LOLIM,R1
+20$:	MOV	R1,R2
+	XOR	R5,R2
+	MOV	R2,(R1)+
+	CMP	R1,HILIM
+	BLO	20$
+;
+	JSR	PC,GETTIM	; T0 for the log header
+	MOV	TICKHI,T0HI
+	MOV	TICKLO,T0LO
+;
+; --- the scan loop ---
+;
+PASS:	ADD	#1,PASSNO
+	ADC	PASSHI
+	MOV	#SIGNAT,R5
+	MOV	LOLIM,R1
+SCANLP:	MOV	R1,R2
+	XOR	R5,R2		; expected
+	CMP	R2,(R1)
+	BNE	BAD
+RESUME:	TST	(R1)+
+	CMP	R1,HILIM
+	BLO	SCANLP
+;
+; pass done: heartbeat, status line, keyboard poll
+;
+	JSR	PC,FLUSHH	; flush events, rewrite header block
+	JSR	PC,STATUS	; update the console status line
+	EMT	340		; .TTYIN, nowait
+	BCS	PASS		; no key - keep scanning
+;
+; --- clean exit ---
+;
+	JSR	PC,FLUSHH
+	MOV	#BYEMSG,R0
+	EMT	351
+	CLR	R0
+	EMT	350		; .EXIT
+;
+; --- a decayed word ---
+; R1 = address, R2 = expected, actual is (R1).  R1,R2,R5 must survive.
+;
+BAD:	MOV	R1,-(SP)
+	MOV	R2,-(SP)
+	ADD	#1,ERRLO	; total error count
+	ADC	ERRHI
+	JSR	PC,GETTIM
+	MOV	EVPTR,R0	; slot in the event buffer
+	MOV	PASSNO,(R0)+	; +0  pass (low word)
+	MOV	R1,(R0)+	; +2  address
+	MOV	R2,(R0)+	; +4  expected
+	MOV	(R1),(R0)+	; +6  actual
+	MOV	TICKHI,(R0)+	; +10 time, high word
+	MOV	TICKLO,(R0)+	; +12 time, low word
+	MOV	PASSHI,(R0)+	; +14 pass (high word)
+	MOV	#125125,(R0)+	; +16 slot-valid marker
+	MOV	R0,EVPTR
+	CMP	R0,#EVBUF+1000	; buffer (one block) full?
+	BLO	50$
+	JSR	PC,FLUSHE	; write the event block out
+50$:	MOV	(SP)+,R2
+	MOV	(SP)+,R1
+	MOV	R2,(R1)		; repair the word, re-arm the trap
+	JMP	RESUME
+;
+; --- flush event buffer to the next event block ---
+;
+FLUSHE:	MOV	R1,-(SP)
+	MOV	EVBLK,R1	; next event block number (1..NLGBLK-1)
+	CMP	R1,#NLGBLK
+	BCC	60$		; log full - keep only counting
+	MOV	R1,WRTBLK
+	MOV	#EVBUF,WRTBUF
+	MOV	#EVWA,R0	; .WRITW chan 0
+	EMT	375
+	BCC	61$
+	JMP	ERRWRT
+61$:	INC	EVBLK
+60$:	MOV	#EVBUF,R0	; reset the buffer
+	MOV	R0,EVPTR
+70$:	CLR	(R0)+
+	CMP	R0,#EVBUF+1000
+	BLO	70$
+	MOV	(SP)+,R1
+	RTS	PC
+;
+; --- flush events if any, then rewrite header block 0: the heartbeat ---
+;
+FLUSHH:	CMP	EVPTR,#EVBUF	; any buffered events?
+	BEQ	80$
+	JSR	PC,FLUSHE
+80$:	JSR	PC,GETTIM
+	MOV	#HDRBUF,R0
+	MOV	#40503,(R0)+	; +0  magic "CA" (103,101)
+	MOV	#40516,(R0)+	; +2  magic "NA" (116,101)
+	MOV	#1,(R0)+	; +4  format version
+	MOV	PASSNO,(R0)+	; +6  pass count low
+	MOV	PASSHI,(R0)+	; +10 pass count high
+	MOV	ERRLO,(R0)+	; +12 error count low
+	MOV	ERRHI,(R0)+	; +14 error count high
+	MOV	TICKHI,(R0)+	; +16 uptime ticks now, high
+	MOV	TICKLO,(R0)+	; +20 low
+	MOV	T0HI,(R0)+	; +22 ticks at fill time, high
+	MOV	T0LO,(R0)+	; +24 low
+	MOV	EVBLK,(R0)+	; +26 next free event block
+	MOV	LOLIM,(R0)+	; +30 test region, low limit
+	MOV	HILIM,(R0)+	; +32 exclusive high limit
+	CLR	WRTBLK		; header is block 0
+	MOV	#HDRBUF,WRTBUF
+	MOV	#EVWA,R0	; .WRITW chan 0
+	EMT	375
+	BCS	ERRWRT
+	RTS	PC
+;
+; --- .GTIM into TICKHI/TICKLO ---
+;
+GETTIM:	MOV	R0,-(SP)
+	MOV	#GTIA,R0
+	EMT	375
+	MOV	(SP)+,R0
+	RTS	PC
+;
+; --- status line: CR PASS nnnnn ERRORS nnnnn UP nnnnn S  (no LF) ---
+;
+STATUS:	MOV	R1,-(SP)
+	MOV	R2,-(SP)
+	MOV	PASSNO,R1
+	MOV	#STPASS,R2
+	JSR	PC,DEC5
+	MOV	ERRLO,R1
+	MOV	#STERR,R2
+	JSR	PC,DEC5
+	MOV	TICKHI,R0	; uptime since fill = (ticks - t0) / 50.
+	MOV	TICKLO,R1
+	SUB	T0LO,R1		; 32-bit subtract
+	SBC	R0
+	SUB	T0HI,R0
+	CMP	R0,#31		; DIV quotient is signed: needs
+	BLO	90$		;  ticks < 50.*32768. (high word < 25.)
+	MOV	#77777,R1	; else clamp the display at 32767 s
+	BR	100$
+90$:	DIV	#62,R0		; 62 octal = 50. (UKNC clock is 50 Hz)
+	MOV	R0,R1
+100$:	MOV	#STSEC,R2
+	JSR	PC,DEC5
+	MOV	#STLINE,R0
+	EMT	351
+	MOV	(SP)+,R2
+	MOV	(SP)+,R1
+	RTS	PC
+;
+; --- R1 (unsigned) -> 5 decimal ASCII digits at R2..R2+4 ---
+;
+DEC5:	MOV	R0,-(SP)
+	MOV	R3,-(SP)
+	MOV	R4,-(SP)
+	MOV	#4,R3		; digit offsets 4 (rightmost) down to 0
+110$:	CLR	R0		; 32-bit dividend R0:R1, high word 0
+	DIV	#12,R0		; R0 = quotient, R1 = remainder
+	ADD	#60,R1		; ASCII digit
+	MOV	R2,R4
+	ADD	R3,R4
+	MOVB	R1,(R4)
+	MOV	R0,R1		; continue with the quotient
+	DEC	R3
+	BGE	110$
+	MOV	(SP)+,R4
+	MOV	(SP)+,R3
+	MOV	(SP)+,R0
+	RTS	PC
+;
+; --- R1 -> 6 octal ASCII digits at R2..R2+5 ---
+;
+OCT6:	MOV	R0,-(SP)
+	MOV	R3,-(SP)
+	MOV	R4,-(SP)
+	MOV	#5,R3		; low five digits at offsets 5..1
+120$:	MOV	R1,R4
+	BIC	#177770,R4
+	ADD	#60,R4
+	MOV	R2,R0
+	ADD	R3,R0
+	MOVB	R4,(R0)
+	ASR	R1
+	ASR	R1
+	ASR	R1
+	BIC	#160000,R1	; make the shift logical
+	SOB	R3,120$
+	BIC	#177776,R1	; top digit of a word is 0 or 1
+	ADD	#60,R1
+	MOVB	R1,(R2)
+	MOV	(SP)+,R4
+	MOV	(SP)+,R3
+	MOV	(SP)+,R0
+	RTS	PC
+;
+; --- fatal errors ---
+;
+ERRENT:	MOV	#ENTMSG,R0
+	BR	DIE
+ERRCLO:	MOV	#CLOMSG,R0
+	BR	DIE
+ERRLOO:	MOV	#LOOMSG,R0
+	BR	DIE
+ERRWRT:	MOV	#WRTMSG,R0
+DIE:	EMT	351
+	CLR	R0
+	EMT	350
+;
+; --- EMT argument blocks ---
+;
+ENTA:	.BYTE	0,2		; .ENTER, chan 0
+	.WORD	FSPEC
+	.WORD	NLGBLK		; blocks to allocate
+	.WORD	0
+LOOA:	.BYTE	0,1		; .LOOKUP, chan 0
+	.WORD	FSPEC
+	.WORD	0
+EVWA:	.BYTE	0,11		; .WRITW, chan 0
+WRTBLK:	.WORD	0		; block number
+WRTBUF:	.WORD	0		; buffer address
+	.WORD	400		; word count: 256. = one block
+	.WORD	0		; wait mode
+GTIA:	.BYTE	0,21		; .GTIM
+	.WORD	TICKHI		; two-word tick buffer, high word first
+;
+FSPEC:	.RAD50	/DK /
+	.RAD50	/CANARY/
+	.RAD50	/LOG/
+;
+; --- variables ---
+;
+LOLIM:	.WORD	0
+HILIM:	.WORD	0
+PASSNO:	.WORD	0
+PASSHI:	.WORD	0
+ERRLO:	.WORD	0
+ERRHI:	.WORD	0
+TICKHI:	.WORD	0
+TICKLO:	.WORD	0
+T0HI:	.WORD	0
+T0LO:	.WORD	0
+EVBLK:	.WORD	1		; first event block is file block 1
+EVPTR:	.WORD	EVBUF
+;
+; --- text ---
+;
+HELLO:	.BYTE	15,12
+	.ASCII	/CANARY V01 - UKNC RAM retention canary/
+	.BYTE	15,12
+	.ASCII	/Log: DK:CANARY.LOG   Any key stops the test./
+	.BYTE	15,12
+	.BYTE	0
+	.EVEN
+LIMMSG:	.ASCII	/TESTING /
+LIMB1:	.ASCII	/000000/
+	.ASCII	/ - /
+LIMB2:	.ASCII	/000000/
+	.BYTE	15,12,0
+	.EVEN
+STLINE:	.BYTE	15
+	.ASCII	/PASS /
+STPASS:	.ASCII	/00000  ERRORS /
+STERR:	.ASCII	/00000  UP /
+STSEC:	.ASCII	/00000 S /
+	.BYTE	200
+	.EVEN
+BYEMSG:	.BYTE	15,12
+	.ASCII	/CANARY stopped; log is on the disk./
+	.BYTE	15,12
+	.BYTE	0
+	.EVEN
+ENTMSG:	.ASCII	/?CANARY-F-ENTER failed - directory full?/
+	.BYTE	15,12
+	.BYTE	0
+	.EVEN
+CLOMSG:	.ASCII	/?CANARY-F-CLOSE failed/
+	.BYTE	15,12
+	.BYTE	0
+	.EVEN
+LOOMSG:	.ASCII	/?CANARY-F-LOOKUP failed/
+	.BYTE	15,12
+	.BYTE	0
+	.EVEN
+WRTMSG:	.ASCII	/?CANARY-F-write failed - write protected?/
+	.BYTE	15,12
+	.BYTE	0
+	.EVEN
+;
+; --- buffers (must stay below LOLIM) ---
+;
+HDRBUF:	.BLKW	400		; one block for the header
+EVBUF:	.BLKW	400		; one block: 32. events of 8. words
+PGMEND:	.WORD	0
+;
+	.END	START

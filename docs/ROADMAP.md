@@ -140,7 +140,16 @@ build required that upstream doesn't document — the back-side values, the SIP
 orientation, the two-byte EPROM decode table, the sourceable SD-socket part
 number — is recorded in [KAKAVE-V21-BUILD.md](KAKAVE-V21-BUILD.md). Phase 2's
 "contract to satisfy" is therefore served in hardware; what this project still
-owes the slot is the diagnostic cartridge below. What remains genuinely unserved,
+owes the slot is the diagnostic cartridge below.
+
+**First diagnostic on top of it — September 2026.** The kakave's card is
+nonvolatile storage that survives a freeze, which makes the machine its own
+long-running memory instrument: [diag/canary](../diag/canary/README.md) is
+an RT-11 program that fills all grantable RAM with signatures, rescans
+forever, and logs every self-changing word (address, bits, pass, time) to
+the disk in place, heartbeat included. Verified end-to-end in the emulator
+with injected decays; built for the first machine's warm-up rot. Its blind
+spot — plane 0 — is exactly the bus-master cartridge's territory. What remains genuinely unserved,
 and what this project uniquely brings, is narrower and better:
 
 - **The diagnostic cartridge** ([DIAGNOSTICS-AS-A-ROM](DIAGNOSTICS-AS-A-ROM.md)):
