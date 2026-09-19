@@ -60,7 +60,7 @@ START:	MOV	#1000,SP	; conventional RT-11 stack, below program
 ;
 ; --- claim all the memory RT-11 will give (USR work is done now) ---
 ;
-	BIS	#100,@#JSW	; JSW bit 6: inhibit TT wait
+	BIS	#10100,@#JSW	; JSW bit 12: single-char mode, bit 6: no wait
 	MOV	#-2,R0		; .SETTOP to the maximum
 	EMT	354
 	BIC	#1,R0		; granted top, word aligned
@@ -117,6 +117,7 @@ RESUME:	TST	(R1)+
 ;
 ; --- clean exit ---
 ;
+	MOV	#1,STOPFL	; header: stopped by key, not by death
 	JSR	PC,FLUSHH
 	MOV	#BYEMSG,R0
 	EMT	351
@@ -191,6 +192,7 @@ FLUSHH:	CMP	EVPTR,#EVBUF	; any buffered events?
 	MOV	EVBLK,(R0)+	; +26 next free event block
 	MOV	LOLIM,(R0)+	; +30 test region, low limit
 	MOV	HILIM,(R0)+	; +32 exclusive high limit
+	MOV	STOPFL,(R0)+	; +34 1 = clean stop by key
 	CLR	WRTBLK		; header is block 0
 	MOV	#HDRBUF,WRTBUF
 	MOV	#EVWA,R0	; .WRITW chan 0
@@ -327,12 +329,13 @@ TICKLO:	.WORD	0
 T0HI:	.WORD	0
 T0LO:	.WORD	0
 EVBLK:	.WORD	1		; first event block is file block 1
+STOPFL:	.WORD	0		; set on clean exit
 EVPTR:	.WORD	EVBUF
 ;
 ; --- text ---
 ;
 HELLO:	.BYTE	15,12
-	.ASCII	/CANARY V01 - UKNC RAM retention canary/
+	.ASCII	/CANARY V02 - UKNC RAM retention canary/
 	.BYTE	15,12
 	.ASCII	/Log: DK:CANARY.LOG   Any key stops the test./
 	.BYTE	15,12
@@ -344,7 +347,7 @@ LIMB1:	.ASCII	/000000/
 LIMB2:	.ASCII	/000000/
 	.BYTE	15,12,0
 	.EVEN
-STLINE:	.BYTE	15
+STLINE:	.BYTE	15,7		; CR, then BEL: one speaker tick per pass
 	.ASCII	/PASS /
 STPASS:	.ASCII	/00000  ERRORS /
 STERR:	.ASCII	/00000  UP /

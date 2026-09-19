@@ -80,10 +80,13 @@ def main():
     t0 = h[9] << 16 | h[10]
     nextblk, lolim, hilim = h[11], h[12], h[13]
     up = (now - t0) & 0xFFFFFFFF
+    stop = "stopped cleanly by key" if h[14] == 1 else "NO clean stop recorded: the machine froze, hung or was powered off while running"
     print(f"canary log v{h[2]}: region {lolim:06o}-{hilim:06o} octal "
           f"({(hilim - lolim) // 2} words), {passes} passes, {errors} decay events, "
           f"last heartbeat {up / HZ:.1f} s after fill "
-          f"(clock {now // HZ // 3600:02d}:{now // HZ % 3600 // 60:02d}:{now // HZ % 60:02d})")
+          f"(clock {now // HZ // 3600:02d}:{now // HZ % 3600 // 60:02d}:{now // HZ % 60:02d}), "
+          f"{passes / max(up / HZ, 1):.2f} passes/s")
+    print(f"end of run: {stop}")
 
     events = []
     nblocks = len(d) // 512

@@ -17,8 +17,10 @@ after minutes of play, then a freeze — see the roadmap), where the built-in
 memory test passes because it runs cold and immediate.
 
 **Status: verified end-to-end in ukncbtl** (booted FODOS 3.0, ran 36 passes,
-four decays injected from the debugger were caught, logged and decoded), not
-yet run on hardware.
+four decays injected from the debugger were caught, logged and decoded) **and
+run on the first machine**: 722 passes, 7.4 minutes, zero decays in CPU RAM —
+then the screen went black and the heartbeat stopped. The fault this machine
+has is not in the tested planes; see the roadmap.
 
 ## Using it
 
@@ -30,9 +32,12 @@ yet run on hardware.
 2. Boot: menu item 1, answer FODOS's date and time prompts, press Enter at the
    startup-file prompt, then at the `.` prompt: `RUN CANARY`.
 3. It prints the tested region, e.g. `TESTING 005100 - 145424`, and a status
-   line `PASS n  ERRORS n  UP n S` that updates every pass (~1.5 passes/s in
-   emulation; expect similar on hardware). Leave it running until the machine
-   misbehaves or freezes. Any key stops it cleanly.
+   line `PASS n  ERRORS n  UP n S` that updates every pass (1.5 passes/s in
+   emulation, 1.64 on hardware), and sends a BEL to the console each pass — if
+   the firmware's terminal rings on BEL, that is an audible heartbeat that
+   outlives a dead screen. Leave it running until the machine misbehaves or
+   freezes. Any key stops it cleanly, and the log records that it was a key
+   (v02 header word 14) rather than a death.
 4. Power off, take the card to a PC:
    `python3 canary_log.py DISKA.DSK` — the decoder walks the RT-11 directory
    itself, no other tool needed. It prints every decay event, a histogram of
@@ -78,6 +83,7 @@ events, 32 per block, 8 words each. All words little-endian.
 | 9–10 | clock ticks at fill time |
 | 11 | next free event block |
 | 12–13 | tested region: low limit, exclusive high limit |
+| 14 | 1 = stopped cleanly by key (v02); 0 = the run ended some other way |
 
 | event word | meaning |
 |---|---|
@@ -120,7 +126,10 @@ things about that toolchain cost real time and are worth knowing:
 - **`<15><12>` inside `.ASCII` is not safe here**: `<12>/text/` is parsed as
   "12 divided by text". Control characters go in separate `.BYTE` lines.
 
-Also learned the hard way, and now handled in the source: `.CLOSE` sets a new
+Also learned the hard way, and now handled in the source: `.TTYIN` only
+returns characters immediately when JSW bit 12 (single-character mode) is set
+as well as bit 6 (no wait) — with bit 6 alone, FODOS delivers input line by
+line, so "any key" needed Enter; `.CLOSE` sets a new
 file's length to the highest block *written*, so the log file is written end
 to end before it is closed, or it would be zero blocks long; and all
 directory work (`.ENTER`, `.CLOSE`, `.LOOKUP`) is done *before* `.SETTOP`,
