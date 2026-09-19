@@ -17,6 +17,16 @@ against a structural model of the die.
 Note the part number: **'245, not '640**. The chip does not invert, which is the
 opposite of what this roadmap and `D22-KR1801VP1-055.md` used to say.
 
+**Diagnosed on the machine — September 2026.** The first machine's warm-up
+failure (static screen regions rotting after minutes, then a freeze) is D22.
+Cooling D22 alone keeps it running; and [diag/canary](../diag/canary/README.md)
+— hundreds of scan passes over CPU RAM with zero decays, right up to the
+moment the peripheral processor died with a black screen, a silent console
+bell and both resets ineffective until cold — shows the CPU side of the bus
+healthy while everything behind the PP's transceiver fails hot. That is the
+machine-level evidence this step was missing; the replacement is now a build,
+not a hypothesis.
+
 Two things still to do before the iron comes out, and they belong here because
 they are about this machine rather than about the chip:
 

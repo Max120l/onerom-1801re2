@@ -19,8 +19,9 @@ memory test passes because it runs cold and immediate.
 **Status: verified end-to-end in ukncbtl** (booted FODOS 3.0, ran 36 passes,
 four decays injected from the debugger were caught, logged and decoded) **and
 run on the first machine**: 722 passes, 7.4 minutes, zero decays in CPU RAM —
-then the screen went black and the heartbeat stopped. The fault this machine
-has is not in the tested planes; see the roadmap.
+then the screen went black and the heartbeat stopped. Together with a
+freeze-spray test that keeps the machine alive by cooling D22 alone, this
+nailed the fault to the PP-side bus transceiver — see the roadmap.
 
 ## Using it
 
